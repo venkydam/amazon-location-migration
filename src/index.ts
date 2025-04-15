@@ -3,6 +3,7 @@
 
 import { withAPIKey } from "@aws/amazon-location-utilities-auth-helper";
 import { LocationClient } from "@aws-sdk/client-location";
+import { GeoPlacesClient } from "@aws-sdk/client-geo-places";
 
 import {
   MigrationDirectionsRenderer,
@@ -15,11 +16,15 @@ import {
 } from "./directions";
 import { MigrationGeocoder } from "./geocoder";
 import {
+  ColorScheme,
   DirectionsStatus,
   GeocoderStatus,
+  MapTypeId,
+  MigrationCircle,
   MigrationControlPosition,
   MigrationLatLng,
   MigrationLatLngBounds,
+  MigrationMVCObject,
   PlacesServiceStatus,
 } from "./googleCommon";
 import { MigrationMap } from "./maps";
@@ -40,7 +45,7 @@ import { PACKAGE_VERSION } from "./version";
 // Also the MapLibre Geocoder input field won't function properly
 const maplibreStyle = document.createElement("link");
 maplibreStyle.setAttribute("rel", "stylesheet");
-maplibreStyle.setAttribute("href", "https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.css");
+maplibreStyle.setAttribute("href", "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css");
 document.head.appendChild(maplibreStyle);
 const maplibreGeocoderStyle = document.createElement("link");
 maplibreGeocoderStyle.setAttribute("rel", "stylesheet");
@@ -74,42 +79,46 @@ const routeCalculatorName = urlParams.get("routeCalculator");
 // Optional, will invoke after migrationInit has finished executing
 const postMigrationCallback = urlParams.get("callback");
 
-// Optional, but if user wants to use a Map, this is required
-const mapName = urlParams.get("map");
-
-// Style URL is used by the Map for making requests
-const styleUrl = `https://maps.geo.${region}.amazonaws.com/maps/v0/maps/${mapName}/style-descriptor?key=${apiKey}`;
-
 const migrationInit = async function () {
-  // Pass our style url (which includes the API key) to our Migration Map class
-  MigrationMap.prototype._styleUrl = styleUrl;
+  // Pass our region and API key to our Migration Map class so that it can build the style URL
+  MigrationMap.prototype._apiKey = apiKey;
+  MigrationMap.prototype._region = region;
 
   // Create an authentication helper instance using an API key
   const authHelper = await withAPIKey(apiKey);
 
-  const client = new LocationClient({
+  // TODO: We still create a V1 client for now while we are in the process of converting all APIs to V2
+  const apiKeyV1 = "<V1_API_KEY>";
+  const authHelperV1 = await withAPIKey(apiKeyV1);
+  const clientV1 = new LocationClient({
+    region: "us-west-2", // Region containing Amazon Location resource
+    customUserAgent: `migration-sdk-${PACKAGE_VERSION}`, // Append tag with SDK version to the default user agent
+    ...authHelperV1.getClientConfig(), // Configures the client to use API keys when making supported requests
+  });
+
+  const client = new GeoPlacesClient({
     region: region, // Region containing Amazon Location resource
     customUserAgent: `migration-sdk-${PACKAGE_VERSION}`, // Append tag with SDK version to the default user agent
-    ...authHelper.getLocationClientConfig(), // Configures the client to use API keys when making supported requests
+    ...authHelper.getClientConfig(), // Configures the client to use API keys when making supported requests
   });
 
   // Pass our location client, and optionally place index and route calculator names
   // to our migration services
-  MigrationAutocomplete.prototype._client = client;
+  MigrationAutocomplete.prototype._client = clientV1;
   MigrationAutocomplete.prototype._placeIndexName = placeIndexName;
   MigrationAutocompleteService.prototype._client = client;
-  MigrationAutocompleteService.prototype._placeIndexName = placeIndexName;
-  MigrationGeocoder.prototype._client = client;
+  MigrationGeocoder.prototype._client = clientV1;
   MigrationGeocoder.prototype._placeIndexName = placeIndexName;
-  MigrationPlace._client = client;
+  MigrationPlace._client = clientV1;
   MigrationPlace._placeIndexName = placeIndexName;
+  MigrationPlacesService.prototype._clientV1 = clientV1;
   MigrationPlacesService.prototype._client = client;
   MigrationPlacesService.prototype._placeIndexName = placeIndexName;
-  MigrationSearchBox.prototype._client = client;
+  MigrationSearchBox.prototype._client = clientV1;
   MigrationSearchBox.prototype._placeIndexName = placeIndexName;
-  MigrationDirectionsService.prototype._client = client;
+  MigrationDirectionsService.prototype._client = clientV1;
   MigrationDirectionsService.prototype._routeCalculatorName = routeCalculatorName;
-  MigrationDistanceMatrixService.prototype._client = client;
+  MigrationDistanceMatrixService.prototype._client = clientV1;
   MigrationDistanceMatrixService.prototype._routeCalculatorName = routeCalculatorName;
 
   // Additionally, we need to create a places service for our directions service and distance matrix
@@ -127,10 +136,13 @@ const migrationInit = async function () {
   // eslint-disable-next-line  @typescript-eslint/no-explicit-any
   (window as any).google = {
     maps: {
+      Circle: MigrationCircle,
       LatLng: MigrationLatLng,
       LatLngBounds: MigrationLatLngBounds,
 
+      ColorScheme: ColorScheme,
       Map: MigrationMap,
+      MapTypeId: MapTypeId,
       Marker: MigrationMarker,
       marker: {
         AdvancedMarkerElement: MigrationMarker,
@@ -149,6 +161,8 @@ const migrationInit = async function () {
 
       Geocoder: MigrationGeocoder,
       GeocoderStatus: GeocoderStatus,
+
+      MVCObject: MigrationMVCObject,
 
       places: {
         Autocomplete: MigrationAutocomplete,
@@ -171,9 +185,11 @@ const migrationInit = async function () {
           switch (library) {
             case "core":
               resolve({
+                ColorScheme: ColorScheme,
                 ControlPosition: MigrationControlPosition,
                 LatLng: MigrationLatLng,
                 LatLngBounds: MigrationLatLngBounds,
+                MVCObject: MigrationMVCObject,
                 event: {
                   addListener: addListener,
                   addListenerOnce: addListenerOnce,
@@ -191,8 +207,10 @@ const migrationInit = async function () {
 
             case "maps":
               resolve({
+                Circle: MigrationCircle,
                 InfoWindow: MigrationInfoWindow,
                 Map: MigrationMap,
+                MapTypeId: MapTypeId,
               });
               break;
 

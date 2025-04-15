@@ -4,6 +4,7 @@
 
 | Interface                                                                                                                                              | Supported          | Notes               |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ | ------------------- |
+| [ColorScheme](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/map#ColorScheme)                              | :white_check_mark: |                     |
 | [ControlPosition](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/control#ControlPosition)                  | :white_check_mark: |                     |
 | [event](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/event#event)                                        | :white_check_mark: | [Details](event.md) |
 | [LatLng](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/coordinates#LatLng)                                | :white_check_mark: |                     |
@@ -14,7 +15,7 @@
 | [MapsRequestError](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/errors#MapsRequestError)                 | :x:                |                     |
 | [MapsServerError](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/errors#MapsServerError)                   | :x:                |                     |
 | [MVCArray](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/event#MVCArray)                                  | :x:                |                     |
-| [MVCObject](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/event#MVCObject)                                | :x:                |                     |
+| [MVCObject](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/event#MVCObject)                                | :white_check_mark: |                     |
 | [Point](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/coordinates#Point)                                  | :x:                |                     |
 | [Settings](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/settings#Settings)                               | :x:                |                     |
 | [Size](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/coordinates#Size)                                    | :x:                |                     |
@@ -26,7 +27,7 @@
 | Interface                                                                                                                                     | Supported          | Notes                    |
 | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------ |
 | [BicyclingLayer](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/map#BicyclingLayer)               | :x:                |                          |
-| [Circle](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/polygon#Circle)                           | :x:                |                          |
+| [Circle](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/polygon#Circle)                           | :white_check_mark: | [Details](circle.md)     |
 | [Data](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/data#Data)                                  | :x:                |                          |
 | [FeatureType](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/data-driven-styling#FeatureType)     | :x:                |                          |
 | [GroundOverlay](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/image-overlay#GroundOverlay)       | :x:                |                          |
@@ -36,7 +37,7 @@
 | [KmlLayerStatus](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/kml#KmlLayerStatus)               | :x:                |                          |
 | [Map](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/map#Map)                                     | :white_check_mark: | [Details](maps.md)       |
 | [MapTypeControlStyle](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/control#MapTypeControlStyle) | :x:                |                          |
-| [MapTypeId](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/map#MapTypeId)                         | :x:                |                          |
+| [MapTypeId](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/map#MapTypeId)                         | :white_check_mark: |                          |
 | [MapTypeRegistry](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/map#MapTypeRegistry)             | :x:                |                          |
 | [MaxZoomService](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/max-zoom#MaxZoomService)          | :x:                |                          |
 | [MaxZoomStatus](https://developers-dot-devsite-v2-prod.appspot.com/maps/documentation/javascript/reference/max-zoom#MaxZoomStatus)            | :x:                |                          |

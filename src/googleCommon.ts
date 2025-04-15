@@ -2,30 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { LngLatBounds } from "maplibre-gl";
+import * as turf from "@turf/turf";
 
-export interface LatLngLiteral {
-  lat: number;
-  lng: number;
-}
-
-export type LatLngLike = LatLngLiteral | MigrationLatLng;
-
-export interface LatLngBoundsLiteral {
-  east: number;
-  north: number;
-  south: number;
-  west: number;
-}
-
-export type LatLngBoundsLike = LatLngBoundsLiteral | MigrationLatLngBounds;
+export type LatLngLike = google.maps.LatLngLiteral | google.maps.LatLng;
+export type LatLngBoundsLike = google.maps.LatLngBoundsLiteral | google.maps.LatLngBounds;
 
 // Migration version of google.maps.LatLng
-export class MigrationLatLng {
+export class MigrationLatLng implements google.maps.LatLng {
   #lat: number;
   #lng: number;
 
   constructor(
-    latOrLatLngOrLatLngLiteral: number | LatLngLiteral | MigrationLatLng,
+    latOrLatLngOrLatLngLiteral: number | google.maps.LatLngLiteral | google.maps.LatLng,
     lngOrNoClampNoWrap?: number | boolean | null,
     noClampNoWrap?: boolean,
   ) {
@@ -114,12 +102,17 @@ export class MigrationLatLng {
 }
 
 // Migration version of google.maps.LatLngBounds
-export class MigrationLatLngBounds {
+export class MigrationLatLngBounds implements google.maps.LatLngBounds {
   #lngLatBounds: LngLatBounds;
 
   constructor(
-    swOrLatLngBounds?: MigrationLatLng | null | LatLngLiteral | MigrationLatLngBounds | LatLngBoundsLiteral,
-    ne?: MigrationLatLng | null | LatLngLiteral,
+    swOrLatLngBounds?:
+      | google.maps.LatLng
+      | null
+      | google.maps.LatLngLiteral
+      | google.maps.LatLngBounds
+      | google.maps.LatLngBoundsLiteral,
+    ne?: google.maps.LatLng | null | google.maps.LatLngLiteral,
   ) {
     let west, south, east, north;
 
@@ -145,8 +138,8 @@ export class MigrationLatLngBounds {
         south = southWest.lat();
         east = northEast.lng();
         north = northEast.lat();
-      } /* LatLngBoundsLiteral */ else {
-        const boundsLiteral = swOrLatLngBounds as LatLngBoundsLiteral;
+      } /* google.maps.LatLngBoundsLiteral */ else {
+        const boundsLiteral = swOrLatLngBounds as google.maps.LatLngBoundsLiteral;
         west = boundsLiteral.west;
         south = boundsLiteral.south;
         east = boundsLiteral.east;
@@ -176,6 +169,27 @@ export class MigrationLatLngBounds {
     this.#lngLatBounds.extend(lngLat);
 
     return this;
+  }
+
+  intersects(other) {
+    const otherBounds = new MigrationLatLngBounds(other);
+
+    const bboxPolygon = turf.bboxPolygon([
+      this.#lngLatBounds.getWest(),
+      this.#lngLatBounds.getSouth(),
+      this.#lngLatBounds.getEast(),
+      this.#lngLatBounds.getNorth(),
+    ]);
+
+    const otherLngLatBounds = otherBounds._getBounds();
+    const otherBboxPolygon = turf.bboxPolygon([
+      otherLngLatBounds.getWest(),
+      otherLngLatBounds.getSouth(),
+      otherLngLatBounds.getEast(),
+      otherLngLatBounds.getNorth(),
+    ]);
+
+    return turf.booleanOverlap(bboxPolygon, otherBboxPolygon);
   }
 
   getCenter() {
@@ -251,6 +265,154 @@ export class MigrationLatLngBounds {
   }
 }
 
+export class MigrationMVCObject implements google.maps.MVCObject {
+  // eslint-disable-next-line  @typescript-eslint/no-unused-vars
+  addListener(eventName: string, handler): google.maps.MapsEventListener {
+    console.error("addListener not supported");
+
+    // eslint-disable-next-line  @typescript-eslint/no-empty-function
+    return { remove: () => {} };
+  }
+
+  // eslint-disable-next-line  @typescript-eslint/no-unused-vars
+  bindTo(key: string, target: google.maps.MVCObject, targetKey?: string | null, noNotify?: boolean): void {
+    console.error("bindTo not supported");
+  }
+
+  get(key: string) {
+    if (Object.prototype.hasOwnProperty.call(this, key)) {
+      return this[key];
+    }
+
+    return undefined;
+  }
+
+  // eslint-disable-next-line  @typescript-eslint/no-unused-vars
+  notify(key: string): void {
+    console.error("notify not supported");
+  }
+
+  set(key: string, value: unknown): void {
+    this[key] = value;
+  }
+
+  setValues(values?: object | null): void {
+    for (const [key, value] of Object.entries(values)) {
+      this.set(key, value);
+    }
+  }
+
+  // eslint-disable-next-line  @typescript-eslint/no-unused-vars
+  unbind(key: string): void {
+    console.error("unbind not supported");
+  }
+
+  unbindAll(): void {
+    console.error("unbindAll not supported");
+  }
+}
+
+export class MigrationCircle extends MigrationMVCObject implements google.maps.Circle {
+  center: MigrationLatLng;
+  radius: number;
+  map: google.maps.Map;
+  draggable = false;
+  editable = false;
+  visible = true;
+
+  constructor(
+    circleOrCircleOptions?: google.maps.Circle | null | google.maps.CircleLiteral | google.maps.CircleOptions,
+  ) {
+    super();
+
+    if (circleOrCircleOptions instanceof MigrationCircle) {
+      this.setCenter(circleOrCircleOptions.getCenter());
+      this.radius = circleOrCircleOptions.getRadius();
+    } else if (circleOrCircleOptions) {
+      // google.maps.CircleLiteral | google.maps.CircleOptions
+      this.setOptions(circleOrCircleOptions as google.maps.CircleOptions);
+    }
+  }
+
+  getBounds(): google.maps.LatLngBounds | null {
+    if (!this.center || !this.radius) {
+      return null;
+    }
+
+    // Google's radius is stored in meters, but turf.circle expects kilometers
+    const radiusInKm = this.radius / 1000;
+
+    const centerArray = [this.center.lng(), this.center.lat()];
+    const circle = turf.circle(centerArray, radiusInKm);
+    const bbox = turf.bbox(circle);
+
+    return new MigrationLatLngBounds({
+      west: bbox[0],
+      south: bbox[1],
+      east: bbox[2],
+      north: bbox[3],
+    });
+  }
+
+  getCenter(): google.maps.LatLng | null {
+    return this.center;
+  }
+
+  getDraggable(): boolean {
+    return this.draggable;
+  }
+
+  getEditable(): boolean {
+    return this.editable;
+  }
+
+  getMap(): google.maps.Map | null {
+    return this.map;
+  }
+
+  getRadius(): number {
+    return this.radius;
+  }
+
+  getVisible(): boolean {
+    return this.visible;
+  }
+
+  setCenter(center: google.maps.LatLng | null | google.maps.LatLngLiteral): void {
+    this.center = new MigrationLatLng(center);
+  }
+
+  setDraggable(draggable: boolean): void {
+    this.draggable = draggable;
+  }
+
+  setEditable(editable: boolean): void {
+    this.editable = editable;
+  }
+
+  setMap(map: google.maps.Map | null): void {
+    this.map = map;
+  }
+
+  setOptions(options: google.maps.CircleOptions | null): void {
+    if (options?.center) {
+      this.setCenter(options.center);
+    }
+
+    if (options?.radius) {
+      this.setRadius(options.radius);
+    }
+  }
+
+  setRadius(radius: number): void {
+    this.radius = radius;
+  }
+
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+  }
+}
+
 // function that takes in a Google LatLng or LatLngLiteral and returns array containing a
 // longitude and latitude (valid MapLibre input), returns 'null' if 'coord' parameter
 // is not a Google LatLng or LatLngLiteral
@@ -265,15 +427,15 @@ export const LatLngToLngLat = function (coord): [number, number] {
   return null;
 };
 
-export const PlacesServiceStatus = {
-  OK: "OK",
-  UNKNOWN_ERROR: "UNKNOWN_ERROR",
-  OVER_QUERY_LIMIT: "OVER_QUERY_LIMIT",
-  REQUEST_DENIED: "REQUEST_DENIED",
-  INVALID_REQUEST: "INVALID_REQUEST",
-  ZERO_RESULTS: "ZERO_RESULTS",
-  NOT_FOUND: "NOT_FOUND",
-};
+export enum PlacesServiceStatus {
+  OK = "OK",
+  UNKNOWN_ERROR = "UNKNOWN_ERROR",
+  OVER_QUERY_LIMIT = "OVER_QUERY_LIMIT",
+  REQUEST_DENIED = "REQUEST_DENIED",
+  INVALID_REQUEST = "INVALID_REQUEST",
+  ZERO_RESULTS = "ZERO_RESULTS",
+  NOT_FOUND = "NOT_FOUND",
+}
 
 export enum DirectionsStatus {
   OK = "OK",
@@ -294,6 +456,19 @@ export enum GeocoderStatus {
   REQUEST_DENIED = "REQUEST_DENIED",
   UNKNOWN_ERROR = "UNKNOWN_ERROR",
   ZERO_RESULTS = "ZERO_RESULTS",
+}
+
+export enum MapTypeId {
+  HYBRID = "hybrid",
+  ROADMAP = "roadmap",
+  SATELLITE = "satellite",
+  TERRAIN = "terrain",
+}
+
+export enum ColorScheme {
+  DARK = "DARK",
+  FOLLOW_SYSTEM = "FOLLOW_SYSTEM",
+  LIGHT = "LIGHT",
 }
 
 // Migration version of google.maps.ControlPosition
@@ -418,8 +593,3 @@ export const GoogleMarkerMouseDOMEvent = [MigrationEvent.click, MigrationEvent.d
 
 // List of Google InfoWindow Events
 export const GoogleInfoWindowEvent = [MigrationEvent.close, MigrationEvent.closeclick];
-
-export interface QueryAutocompletePrediction {
-  description: string;
-  place_id?: string;
-}

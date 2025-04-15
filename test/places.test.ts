@@ -2,16 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  convertAmazonCategoriesToGoogle,
+  convertAmazonOpeningHoursToGoogle,
+  convertAmazonPlaceToGoogle,
   MigrationAutocomplete,
   MigrationAutocompleteService,
   MigrationPlace,
   MigrationPlacesService,
   MigrationSearchBox,
+  PlaceOpeningHours,
 } from "../src/places";
-import { MigrationLatLng, MigrationLatLngBounds, PlacesServiceStatus } from "../src/googleCommon";
+import { MigrationCircle, MigrationLatLng, MigrationLatLngBounds, PlacesServiceStatus } from "../src/googleCommon";
 
 // Spy on console.error so we can verify it gets called in error cases
 jest.spyOn(console, "error").mockImplementation(() => {});
+
+// Set a fake system time so that any logic that creates a new Date.now (e.g. new Date())
+// will be deterministic
+jest.useFakeTimers().setSystemTime(new Date("2024-01-01T10:00:00.000Z"));
 
 // Austin, TX :)
 const testPlaceLabel = "Austin, TX, USA";
@@ -22,7 +30,7 @@ const testPlaceWithAddressLabel = "1337 Cool Place Road, Austin, TX, USA";
 
 const clientErrorQuery = "THIS_WILL_CAUSE_A_CLIENT_ERROR";
 
-const mockedClientSend = jest.fn((command) => {
+const mockedClientSendV1 = jest.fn((command) => {
   return new Promise((resolve, reject) => {
     if (command instanceof SearchPlaceIndexForTextCommand) {
       if (command.input.Text == clientErrorQuery) {
@@ -48,7 +56,7 @@ const mockedClientSend = jest.fn((command) => {
           ],
         });
       }
-    } else if (command instanceof GetPlaceCommand) {
+    } else if (command instanceof GetPlaceCommandV1) {
       if (command.input.PlaceId === undefined || command.input.PlaceId === clientErrorQuery) {
         // Return an empty object that will throw an error
         resolve({});
@@ -96,21 +104,280 @@ jest.mock("@aws-sdk/client-location", () => ({
   ...jest.requireActual("@aws-sdk/client-location"),
   LocationClient: jest.fn().mockImplementation(() => {
     return {
-      send: mockedClientSend,
+      send: mockedClientSendV1,
     };
   }),
 }));
 import {
-  GetPlaceCommand,
+  GetPlaceCommand as GetPlaceCommandV1,
   LocationClient,
   SearchPlaceIndexForSuggestionsCommand,
   SearchPlaceIndexForTextCommand,
 } from "@aws-sdk/client-location";
 
+const mockedClientSend = jest.fn((command) => {
+  return new Promise((resolve, reject) => {
+    if (command instanceof GetPlaceCommand) {
+      if (command.input.PlaceId === undefined || command.input.PlaceId === clientErrorQuery) {
+        // Return an empty object that will throw an error
+        resolve({});
+      } else {
+        resolve({
+          Address: {
+            Label: testPlaceWithAddressLabel,
+            Country: {
+              Code2: "US",
+              Code3: "USA",
+              Name: "United States",
+            },
+            Region: {
+              Code: "TX",
+              Name: "Texas",
+            },
+            SubRegion: {
+              Name: "Cool SubRegion",
+            },
+            Locality: "Austin",
+            District: "Cool District",
+            PostalCode: "78704",
+            Street: "Cool Place Road",
+            AddressNumber: "1337",
+          },
+          Categories: [
+            {
+              Name: "Cool Place",
+              LocalizedName: "Cool Place",
+              Id: "cool_place",
+              Primary: true,
+            },
+          ],
+          Contacts: {
+            Phones: [
+              {
+                Value: "+15121234567",
+              },
+            ],
+            Websites: [
+              {
+                Value: "https://coolwebsite.com",
+              },
+            ],
+          },
+          MapView: [0, 1, 2, 3],
+          OpeningHours: [
+            {
+              Display: ["Mon-Sun: 08:30 - 13:37"],
+              OpenNow: true,
+              Components: [
+                {
+                  OpenTime: "T083000",
+                  OpenDuration: "PT05H07M",
+                  Recurrence: "FREQ:DAILY;BYDAY:MO,TU,WE,TH,FR,SA,SU",
+                },
+              ],
+            },
+          ],
+          PlaceId: "KEEP_AUSTIN_WEIRD",
+          PlaceType: "PointOfInterest",
+          Position: [testLng, testLat],
+          TimeZone: {
+            Name: "America/Chicago",
+            Offset: "-05:00",
+            OffsetSeconds: -18000,
+          },
+          Title: "1337 Cool Place Road",
+        });
+      }
+    } else if (command instanceof SuggestCommand) {
+      if (command.input.QueryText == clientErrorQuery) {
+        // Return an empty object that will throw an error
+        resolve({});
+      } else {
+        resolve({
+          ResultItems: [
+            {
+              Highlights: {
+                Title: [
+                  {
+                    StartIndex: 0,
+                    EndIndex: 3,
+                  },
+                ],
+              },
+              Query: {
+                QueryId: "cool_query_id",
+                QueryType: "Chain",
+              },
+              SuggestResultItemType: "Query",
+              Title: "cool places near austin",
+            },
+            {
+              Highlights: {
+                Title: [
+                  {
+                    StartIndex: 0,
+                    EndIndex: 3,
+                  },
+                ],
+                Address: {
+                  Label: [
+                    {
+                      StartIndex: 0,
+                      EndIndex: 3,
+                    },
+                  ],
+                },
+              },
+              Place: {
+                Address: {
+                  Label: "123 Cool Place Way, Austin, TX, United States",
+                  Country: {
+                    Code2: "US",
+                    Code3: "USA",
+                    Name: "United States",
+                  },
+                  Region: {
+                    Code: "TX",
+                    Name: "Texas",
+                  },
+                  SubRegion: {
+                    Name: "Travis",
+                  },
+                  Locality: "Austin",
+                  District: "Fun",
+                  PostalCode: "78704-1144",
+                  Street: "Cool Place Way",
+                  StreetComponents: [
+                    {
+                      BaseName: "Cool Place",
+                      Type: "Way",
+                      TypePlacement: "AfterBaseName",
+                      TypeSeparator: " ",
+                      Language: "en",
+                    },
+                  ],
+                  AddressNumber: "123",
+                },
+                Distance: 1337,
+                FoodTypes: [
+                  {
+                    LocalizedName: "Burgers",
+                    Primary: true,
+                  },
+                ],
+                PlaceId: "COOL_PLACE_1",
+                PlaceType: "PointOfInterest",
+                Position: [testLng, testLat],
+              },
+              SuggestResultItemType: "Place",
+              Title: "123 Cool Place Way",
+            },
+          ],
+        });
+      }
+    } else if (command instanceof SearchTextCommand) {
+      if (command.input.QueryText == clientErrorQuery) {
+        // Return an empty object that will throw an error
+        resolve({});
+      } else {
+        resolve({
+          ResultItems: [
+            {
+              Address: {
+                Label: testPlaceWithAddressLabel,
+                Country: {
+                  Code2: "US",
+                  Code3: "USA",
+                  Name: "United States",
+                },
+                Region: {
+                  Code: "TX",
+                  Name: "Texas",
+                },
+                SubRegion: {
+                  Name: "Cool SubRegion",
+                },
+                Locality: "Austin",
+                District: "Cool District",
+                PostalCode: "78704",
+                Street: "Cool Place Road",
+                AddressNumber: "1337",
+              },
+              Categories: [
+                {
+                  Name: "Cool Place",
+                  LocalizedName: "Cool Place",
+                  Id: "cool_place",
+                  Primary: true,
+                },
+              ],
+              Contacts: {
+                Phones: [
+                  {
+                    Value: "+15121234567",
+                  },
+                ],
+                Websites: [
+                  {
+                    Value: "https://coolwebsite.com",
+                  },
+                ],
+              },
+              MapView: [0, 1, 2, 3],
+              OpeningHours: [
+                {
+                  Display: ["Mon-Sun: 08:30 - 13:37"],
+                  OpenNow: true,
+                  Components: [
+                    {
+                      OpenTime: "T083000",
+                      OpenDuration: "PT05H07M",
+                      Recurrence: "FREQ:DAILY;BYDAY:MO,TU,WE,TH,FR,SA,SU",
+                    },
+                  ],
+                },
+              ],
+              PlaceId: "KEEP_AUSTIN_WEIRD",
+              PlaceType: "PointOfInterest",
+              Position: [testLng, testLat],
+              TimeZone: {
+                Name: "America/Chicago",
+                Offset: "-05:00",
+                OffsetSeconds: -18000,
+              },
+              Title: "1337 Cool Place Road",
+            },
+          ],
+        });
+      }
+    } else {
+      reject();
+    }
+  });
+});
+
+jest.mock("@aws-sdk/client-geo-places", () => ({
+  ...jest.requireActual("@aws-sdk/client-geo-places"),
+  GeoPlacesClient: jest.fn().mockImplementation(() => {
+    return {
+      send: mockedClientSend,
+    };
+  }),
+}));
+import {
+  GeoPlacesClient,
+  GetPlaceCommand,
+  SuggestCommand,
+  SuggestRequest,
+  SearchTextCommand,
+  SearchTextRequest,
+} from "@aws-sdk/client-geo-places";
+
 const autocompleteService = new MigrationAutocompleteService();
-autocompleteService._client = new LocationClient();
+autocompleteService._client = new GeoPlacesClient();
 const placesService = new MigrationPlacesService();
-placesService._client = new LocationClient();
+placesService._clientV1 = new LocationClient();
+placesService._client = new GeoPlacesClient();
 MigrationPlace._client = new LocationClient();
 MigrationSearchBox.prototype._client = new LocationClient();
 
@@ -132,12 +399,12 @@ test("findPlaceFromQuery should only return the requested fields", (done) => {
     const firstResult = results[0];
 
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
 
     const returnedLatLng = firstResult.geometry.location;
     expect(returnedLatLng.lat()).toStrictEqual(testLat);
     expect(returnedLatLng.lng()).toStrictEqual(testLng);
-    expect(firstResult.name).toStrictEqual("Austin");
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     expect(firstResult.formatted_address).toBeUndefined();
@@ -161,16 +428,16 @@ test("findPlaceFromQuery should return all fields when ALL are requested", (done
     const firstResult = results[0];
 
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
 
     const returnedLatLng = firstResult.geometry.location;
     expect(returnedLatLng.lat()).toStrictEqual(testLat);
     expect(returnedLatLng.lng()).toStrictEqual(testLng);
-    expect(firstResult.name).toStrictEqual("Austin");
-    expect(firstResult.formatted_address).toStrictEqual(testPlaceLabel);
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
+    expect(firstResult.formatted_address).toStrictEqual(testPlaceWithAddressLabel);
     expect(firstResult.place_id).toStrictEqual("KEEP_AUSTIN_WEIRD");
     expect(firstResult.reference).toStrictEqual("KEEP_AUSTIN_WEIRD");
-    expect(firstResult.types).toStrictEqual(["City"]);
+    expect(firstResult.types).toStrictEqual(["Cool Place"]);
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -178,7 +445,34 @@ test("findPlaceFromQuery should return all fields when ALL are requested", (done
   });
 });
 
-test("findPlaceFromQuery should translate location bias", (done) => {
+test("findPlaceFromQuery should accept locationBias as google.maps.LatLng", (done) => {
+  const biasLat = 0;
+  const biasLng = 1;
+  const request = {
+    query: "Austin, TX",
+    fields: ["name"],
+    locationBias: new MigrationLatLng(biasLat, biasLng),
+  };
+
+  placesService.findPlaceFromQuery(request, (results, status) => {
+    expect(results.length).toStrictEqual(1);
+    const firstResult = results[0];
+
+    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
+    expect(clientInput.BiasPosition?.[0]).toStrictEqual(biasLng);
+    expect(clientInput.BiasPosition?.[1]).toStrictEqual(biasLat);
+
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
+    expect(status).toStrictEqual(PlacesServiceStatus.OK);
+
+    // Signal the unit test is complete
+    done();
+  });
+});
+
+test("findPlaceFromQuery should accept locationBias as google.maps.LatLngLiteral", (done) => {
   const biasLat = 0;
   const biasLng = 1;
   const request = {
@@ -195,12 +489,157 @@ test("findPlaceFromQuery should translate location bias", (done) => {
     const firstResult = results[0];
 
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
-    expect(clientInput.BiasPosition[0]).toStrictEqual(biasLng);
-    expect(clientInput.BiasPosition[1]).toStrictEqual(biasLat);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
+    expect(clientInput.BiasPosition?.[0]).toStrictEqual(biasLng);
+    expect(clientInput.BiasPosition?.[1]).toStrictEqual(biasLat);
 
-    expect(firstResult.name).toStrictEqual("Austin");
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
+    expect(status).toStrictEqual(PlacesServiceStatus.OK);
+
+    // Signal the unit test is complete
+    done();
+  });
+});
+
+test("findPlaceFromQuery should accept locationBias as google.maps.LatLngBounds", (done) => {
+  const east = 0;
+  const north = 1;
+  const south = 2;
+  const west = 3;
+  const request = {
+    query: "Austin, TX",
+    fields: ["name"],
+    locationBias: new MigrationLatLngBounds(new MigrationLatLng(south, west), new MigrationLatLng(north, east)),
+  };
+
+  placesService.findPlaceFromQuery(request, (results, status) => {
+    expect(results.length).toStrictEqual(1);
+    const firstResult = results[0];
+
+    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
+    expect(clientInput.Filter?.BoundingBox).toStrictEqual([west, south, east, north]);
+
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
+    expect(status).toStrictEqual(PlacesServiceStatus.OK);
+
+    // Signal the unit test is complete
+    done();
+  });
+});
+
+test("findPlaceFromQuery should accept locationBias as google.maps.LatLngBoundsLiteral", (done) => {
+  const east = 0;
+  const north = 1;
+  const south = 2;
+  const west = 3;
+  const request = {
+    query: "Austin, TX",
+    fields: ["name"],
+    locationBias: {
+      east: east,
+      north: north,
+      west: west,
+      south: south,
+    },
+  };
+
+  placesService.findPlaceFromQuery(request, (results, status) => {
+    expect(results.length).toStrictEqual(1);
+    const firstResult = results[0];
+
+    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
+    expect(clientInput.Filter?.BoundingBox).toStrictEqual([west, south, east, north]);
+
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
+    expect(status).toStrictEqual(PlacesServiceStatus.OK);
+
+    // Signal the unit test is complete
+    done();
+  });
+});
+
+test("findPlaceFromQuery should accept locationBias as google.maps.Circle", (done) => {
+  const request = {
+    query: "Austin, TX",
+    fields: ["name"],
+    locationBias: new MigrationCircle({
+      center: new MigrationLatLng(testLat, testLng),
+      radius: 1337,
+    }),
+  };
+
+  placesService.findPlaceFromQuery(request, (results, status) => {
+    expect(results.length).toStrictEqual(1);
+    const firstResult = results[0];
+
+    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
+    expect(clientInput.Filter?.Circle?.Center).toStrictEqual([testLng, testLat]);
+    expect(clientInput.Filter?.Circle?.Radius).toStrictEqual(1337);
+
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
+    expect(status).toStrictEqual(PlacesServiceStatus.OK);
+
+    // Signal the unit test is complete
+    done();
+  });
+});
+
+test("findPlaceFromQuery should accept locationBias as google.maps.CircleLiteral", (done) => {
+  const request = {
+    query: "Austin, TX",
+    fields: ["name"],
+    locationBias: {
+      center: {
+        lat: testLat,
+        lng: testLng,
+      },
+      radius: 1337,
+    },
+  };
+
+  placesService.findPlaceFromQuery(request, (results, status) => {
+    expect(results.length).toStrictEqual(1);
+    const firstResult = results[0];
+
+    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
+    expect(clientInput.Filter?.Circle?.Center).toStrictEqual([testLng, testLat]);
+    expect(clientInput.Filter?.Circle?.Radius).toStrictEqual(1337);
+
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
+    expect(status).toStrictEqual(PlacesServiceStatus.OK);
+
+    // Signal the unit test is complete
+    done();
+  });
+});
+
+test("findPlaceFromQuery should accept language", (done) => {
+  const request = {
+    query: "cool places in austin",
+    fields: ["name"],
+    language: "en",
+  };
+
+  placesService.findPlaceFromQuery(request, (results, status) => {
+    expect(results.length).toStrictEqual(1);
+    const firstResult = results[0];
+
+    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
+
+    expect(clientInput.Language).toStrictEqual("en");
+
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -234,18 +673,97 @@ test("getDetails should return all fields by default", (done) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
     expect(mockedClientSend).toHaveBeenCalledWith(expect.any(GetPlaceCommand));
 
-    const returnedLatLng = result.geometry.location;
+    const returnedLatLng: MigrationLatLng = result.geometry.location;
     expect(returnedLatLng.lat()).toStrictEqual(testLat);
     expect(returnedLatLng.lng()).toStrictEqual(testLng);
+    const returnedViewport: MigrationLatLngBounds = result.geometry.viewport;
+    expect(returnedViewport.toJSON()).toStrictEqual({
+      east: 2,
+      north: 3,
+      west: 0,
+      south: 1,
+    });
     expect(result.name).toStrictEqual("1337 Cool Place Road");
     expect(result.formatted_address).toStrictEqual(testPlaceWithAddressLabel);
     expect(result.place_id).toStrictEqual("KEEP_AUSTIN_WEIRD");
     expect(result.reference).toStrictEqual("KEEP_AUSTIN_WEIRD");
-    expect(result.types).toStrictEqual(["City"]);
+    expect(result.plus_code.global_code).toStrictEqual("86247793+7M");
+    expect(result.plus_code.compound_code).toStrictEqual("7793+7M Austin, Texas");
+    expect(result.adr_address).toStrictEqual(
+      '<span class="street-address">1337 Cool Place Road</span>, <span class="locality">Austin</span>, <span class="region">TX</span>, <span class="postal-code">78704</span>, <span class="country-name">USA</span>',
+    );
+    expect(result.types).toStrictEqual(["Cool Place"]);
+    expect(result.formatted_phone_number).toStrictEqual("(512) 123-4567");
+    expect(result.international_phone_number).toStrictEqual("+1 512 123 4567");
     expect(result.utc_offset).toStrictEqual(-300);
     expect(result.utc_offset_minutes).toStrictEqual(-300);
     expect(result.vicinity).toStrictEqual("1337 Cool Place Road, Austin");
+    expect(result.website).toStrictEqual("https://coolwebsite.com");
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
+
+    // Address components
+    const addressComponents = result.address_components;
+    expect(addressComponents[0].long_name).toStrictEqual("1337");
+    expect(addressComponents[0].short_name).toStrictEqual("1337");
+    expect(addressComponents[0].types).toStrictEqual(["street_number"]);
+    expect(addressComponents[1].long_name).toStrictEqual("Cool Place Road");
+    expect(addressComponents[1].short_name).toStrictEqual("Cool Place Road");
+    expect(addressComponents[1].types).toStrictEqual(["route"]);
+    expect(addressComponents[2].long_name).toStrictEqual("Cool District");
+    expect(addressComponents[2].short_name).toStrictEqual("Cool District");
+    expect(addressComponents[2].types).toStrictEqual(["neighborhood", "political"]);
+    expect(addressComponents[3].long_name).toStrictEqual("Austin");
+    expect(addressComponents[3].short_name).toStrictEqual("Austin");
+    expect(addressComponents[3].types).toStrictEqual(["locality", "political"]);
+    expect(addressComponents[4].long_name).toStrictEqual("Cool SubRegion");
+    expect(addressComponents[4].short_name).toStrictEqual("Cool SubRegion");
+    expect(addressComponents[4].types).toStrictEqual(["administrative_area_level_2", "political"]);
+    expect(addressComponents[5].long_name).toStrictEqual("Texas");
+    expect(addressComponents[5].short_name).toStrictEqual("TX");
+    expect(addressComponents[5].types).toStrictEqual(["administrative_area_level_1", "political"]);
+    expect(addressComponents[6].long_name).toStrictEqual("United States");
+    expect(addressComponents[6].short_name).toStrictEqual("US");
+    expect(addressComponents[6].types).toStrictEqual(["country", "political"]);
+    expect(addressComponents[7].long_name).toStrictEqual("78704");
+    expect(addressComponents[7].short_name).toStrictEqual("78704");
+    expect(addressComponents[7].types).toStrictEqual(["postal_code"]);
+
+    // Opening hours
+    const openingHours: PlaceOpeningHours = result.opening_hours;
+    const periods = openingHours.periods;
+
+    expect(periods).toBeDefined();
+    if (periods) {
+      for (let index = 0; index < periods.length; index++) {
+        const period = periods[index];
+
+        expect(period.open.day).toStrictEqual(index);
+        expect(period.open.hours).toStrictEqual(8);
+        expect(period.open.minutes).toStrictEqual(30);
+        expect(period.open.time).toStrictEqual("0830");
+
+        expect(period.close?.day).toStrictEqual(index);
+        expect(period.close?.hours).toStrictEqual(13);
+        expect(period.close?.minutes).toStrictEqual(37);
+        expect(period.close?.time).toStrictEqual("1337");
+      }
+    }
+
+    expect(openingHours).toBeDefined();
+    expect(openingHours.weekday_text).toStrictEqual([
+      "Monday: 8:30 AM - 1:37 PM",
+      "Tuesday: 8:30 AM - 1:37 PM",
+      "Wednesday: 8:30 AM - 1:37 PM",
+      "Thursday: 8:30 AM - 1:37 PM",
+      "Friday: 8:30 AM - 1:37 PM",
+      "Saturday: 8:30 AM - 1:37 PM",
+      "Sunday: 8:30 AM - 1:37 PM",
+    ]);
+
+    // Will test these below in convertAmazonOpeningHoursToGoogle tests because open_now could be different
+    // depending on what time the tests are run, since it is calculated based on the current time
+    expect(openingHours.isOpen).toBeDefined();
+    expect(openingHours.open_now).toBeDefined();
 
     // Signal the unit test is complete
     done();
@@ -269,6 +787,13 @@ test("getDetails should only return the requested fields", (done) => {
 
     expect(result.geometry).toBeUndefined();
     expect(result.formatted_address).toBeUndefined();
+    expect(result.plus_code).toBeUndefined();
+    expect(result.adr_address).toBeUndefined();
+    expect(result.formatted_phone_number).toBeUndefined();
+    expect(result.international_phone_number).toBeUndefined();
+    expect(result.address_components).toBeUndefined();
+    expect(result.website).toBeUndefined();
+    expect(result.opening_hours).toBeUndefined();
     expect(result.reference).toBeUndefined();
     expect(result.types).toBeUndefined();
     expect(result.utc_offset).toBeUndefined();
@@ -295,6 +820,677 @@ test("getDetails should handle client error", (done) => {
   });
 });
 
+test("should return null if opening hours is missing or empty", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([]);
+
+  expect(openingHours).toBeNull();
+});
+
+test("should log an error if opening hours has an unrecognized recurrence", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([
+    {
+      Display: ["Mon-Sun: 00:00 - 24:00"],
+      OpenNow: true,
+      Components: [
+        {
+          OpenTime: "T000000",
+          OpenDuration: "PT24H00M",
+          Recurrence: "UNKNOWN_RECURRENCE:MO,TU,WE,TH,FR,SA,SU",
+        },
+      ],
+    },
+  ]);
+
+  expect(openingHours?.periods).toHaveLength(0);
+  expect(console.error).toHaveBeenCalledTimes(1);
+});
+
+test("should truncate weekday_text AM if open and close times are both AM", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([
+    {
+      Display: ["Mon: 08:00 - 10:26"],
+      OpenNow: true,
+      Components: [
+        {
+          OpenTime: "T080000",
+          OpenDuration: "PT02H26M",
+          Recurrence: "FREQ:DAILY;BYDAY:MO",
+        },
+      ],
+    },
+  ]);
+
+  expect(openingHours?.weekday_text).toBeDefined();
+  if (openingHours?.weekday_text) {
+    const weekdayText = openingHours.weekday_text;
+    expect(weekdayText[0]).toStrictEqual("Monday: 8:00 - 10:26 AM");
+  }
+});
+
+test("should truncate weekday_text PM if open and close times are both PM", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([
+    {
+      Display: ["Mon: 13:00 - 13:37"],
+      OpenNow: true,
+      Components: [
+        {
+          OpenTime: "T130000",
+          OpenDuration: "PT00H37M",
+          Recurrence: "FREQ:DAILY;BYDAY:MO",
+        },
+      ],
+    },
+  ]);
+
+  expect(openingHours?.weekday_text).toBeDefined();
+  if (openingHours?.weekday_text) {
+    const weekdayText = openingHours.weekday_text;
+    expect(weekdayText[0]).toStrictEqual("Monday: 1:00 - 1:37 PM");
+  }
+});
+
+test("should have closed for weekday_text on days when closed", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([
+    {
+      Display: ["Mon: 08:00 - 10:26"],
+      OpenNow: true,
+      Components: [
+        {
+          OpenTime: "T080000",
+          OpenDuration: "PT02H26M",
+          Recurrence: "FREQ:DAILY;BYDAY:MO,TU,TH,SU",
+        },
+      ],
+    },
+  ]);
+
+  expect(openingHours?.weekday_text).toBeDefined();
+  if (openingHours?.weekday_text) {
+    const weekdayText = openingHours.weekday_text;
+    expect(weekdayText[0]).toStrictEqual("Monday: 8:00 - 10:26 AM");
+    expect(weekdayText[1]).toStrictEqual("Tuesday: 8:00 - 10:26 AM");
+    expect(weekdayText[2]).toStrictEqual("Wednesday: Closed");
+    expect(weekdayText[3]).toStrictEqual("Thursday: 8:00 - 10:26 AM");
+    expect(weekdayText[4]).toStrictEqual("Friday: Closed");
+    expect(weekdayText[5]).toStrictEqual("Saturday: Closed");
+    expect(weekdayText[6]).toStrictEqual("Sunday: 8:00 - 10:26 AM");
+  }
+});
+
+test("should handle open 24 hours special-case", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([
+    {
+      Display: ["Mon-Sun: 00:00 - 24:00"],
+      OpenNow: true,
+      Components: [
+        {
+          OpenTime: "T000000",
+          OpenDuration: "PT24H00M",
+          Recurrence: "FREQ:DAILY;BYDAY:MO,TU,WE,TH,FR,SA,SU",
+        },
+      ],
+    },
+  ]);
+
+  expect(openingHours?.periods).toHaveLength(1);
+  if (openingHours?.periods) {
+    const onlyPeriod = openingHours?.periods[0];
+    expect(onlyPeriod.open.day).toStrictEqual(0);
+    expect(onlyPeriod.open.hours).toStrictEqual(0);
+    expect(onlyPeriod.open.minutes).toStrictEqual(0);
+    expect(onlyPeriod.open.time).toStrictEqual("0000");
+
+    expect(onlyPeriod.close).toBeUndefined();
+  }
+
+  expect(openingHours?.weekday_text).toBeDefined();
+  if (openingHours?.weekday_text) {
+    const weekdayText = openingHours.weekday_text;
+    expect(weekdayText[0]).toStrictEqual("Monday: Open 24 hours");
+    expect(weekdayText[1]).toStrictEqual("Tuesday: Open 24 hours");
+    expect(weekdayText[2]).toStrictEqual("Wednesday: Open 24 hours");
+    expect(weekdayText[3]).toStrictEqual("Thursday: Open 24 hours");
+    expect(weekdayText[4]).toStrictEqual("Friday: Open 24 hours");
+    expect(weekdayText[5]).toStrictEqual("Saturday: Open 24 hours");
+    expect(weekdayText[6]).toStrictEqual("Sunday: Open 24 hours");
+  }
+});
+
+test("isOpen should return true if OpenNow is true", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([
+    {
+      Display: ["Mon: 08:00 - 10:26"],
+      OpenNow: true,
+      Components: [
+        {
+          OpenTime: "T080000",
+          OpenDuration: "PT02H26M",
+          Recurrence: "FREQ:DAILY;BYDAY:MO,TU,TH,SU",
+        },
+      ],
+    },
+  ]);
+
+  expect(openingHours?.isOpen()).toStrictEqual(true);
+});
+
+test("isOpen will always be true if the place is open 24 hours", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([
+    {
+      Display: ["Mon-Sun: 00:00 - 24:00"],
+      OpenNow: true,
+      Components: [
+        {
+          OpenTime: "T000000",
+          OpenDuration: "PT24H00M",
+          Recurrence: "FREQ:DAILY;BYDAY:MO,TU,WE,TH,FR,SA,SU",
+        },
+      ],
+    },
+  ]);
+
+  expect(openingHours?.isOpen(new Date("2024-01-01T10:00"))).toStrictEqual(true);
+  expect(openingHours?.isOpen(new Date("2024-01-01T15:00"))).toStrictEqual(true);
+  expect(openingHours?.isOpen(new Date("2024-01-01T23:00"))).toStrictEqual(true);
+});
+
+test("isOpen should be undefined if there are no opening hours periods", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle([
+    {
+      Display: [],
+      OpenNow: true,
+      Components: [],
+    },
+  ]);
+
+  expect(openingHours?.isOpen(new Date("2024-01-01T10:00"))).toBeUndefined();
+});
+
+test("isOpen should only return true on the correct day", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle(
+    [
+      {
+        Display: ["Wed: 08:00 - 10:26"],
+        OpenNow: true,
+        Components: [
+          {
+            OpenTime: "T080000",
+            OpenDuration: "PT02H26M",
+            Recurrence: "FREQ:DAILY;BYDAY:WE",
+          },
+        ],
+      },
+    ],
+    {
+      Name: "UTC",
+      Offset: "00:00",
+      OffsetSeconds: 0,
+    },
+  );
+
+  const testDate = new Date("2024-07-10T10:00:00.000Z"); // Wednesday
+  expect(openingHours?.isOpen(testDate)).toStrictEqual(true);
+
+  const badTestDate = new Date("2024-07-09T10:00:00.000Z"); // Tuesday
+  expect(openingHours?.isOpen(badTestDate)).toStrictEqual(false);
+});
+
+test("isOpen will return false if duration is missing because there will be no close times", () => {
+  const openingHours = convertAmazonOpeningHoursToGoogle(
+    [
+      {
+        Display: ["Wed: 08:00 - 10:26"],
+        OpenNow: true,
+        Components: [
+          {
+            OpenTime: "T080000",
+            Recurrence: "FREQ:DAILY;BYDAY:WE",
+          },
+        ],
+      },
+    ],
+    {
+      Name: "UTC",
+      Offset: "00:00",
+      OffsetSeconds: 0,
+    },
+  );
+
+  const badTestDate = new Date("2024-07-10T10:00:00.000Z"); // Wednesday
+  expect(openingHours?.isOpen(badTestDate)).toStrictEqual(false);
+
+  const alsoBadTestDate = new Date("2024-07-09T10:00:00.000Z"); // Tuesday
+  expect(openingHours?.isOpen(alsoBadTestDate)).toStrictEqual(false);
+});
+
+test("should convert Country PlaceType to correct types", () => {
+  const googleTypes = convertAmazonCategoriesToGoogle({
+    PlaceId: "TEST_PLACE_ID",
+    PlaceType: "Country",
+    PricingBucket: "",
+    Title: "CoolPlace",
+  });
+
+  expect(googleTypes).toStrictEqual(["country", "political"]);
+});
+
+test("should convert Region PlaceType to correct types", () => {
+  const googleTypes = convertAmazonCategoriesToGoogle({
+    PlaceId: "TEST_PLACE_ID",
+    PlaceType: "Region",
+    PricingBucket: "",
+    Title: "CoolPlace",
+  });
+
+  expect(googleTypes).toStrictEqual(["administrative_area_level_1", "political"]);
+});
+
+test("should convert SubRegion PlaceType to correct types", () => {
+  const googleTypes = convertAmazonCategoriesToGoogle({
+    PlaceId: "TEST_PLACE_ID",
+    PlaceType: "SubRegion",
+    PricingBucket: "",
+    Title: "CoolPlace",
+  });
+
+  expect(googleTypes).toStrictEqual(["administrative_area_level_2", "political"]);
+});
+
+test("should convert Locality PlaceType to correct types", () => {
+  const googleTypes = convertAmazonCategoriesToGoogle({
+    PlaceId: "TEST_PLACE_ID",
+    PlaceType: "Locality",
+    PricingBucket: "",
+    Title: "CoolPlace",
+  });
+
+  expect(googleTypes).toStrictEqual(["locality", "political"]);
+});
+
+test("should convert PostalCode PlaceType to correct types", () => {
+  const googleTypes = convertAmazonCategoriesToGoogle({
+    PlaceId: "TEST_PLACE_ID",
+    PlaceType: "PostalCode",
+    PricingBucket: "",
+    Title: "CoolPlace",
+  });
+
+  expect(googleTypes).toStrictEqual(["postal_code"]);
+});
+
+test("should convert District PlaceType to correct types", () => {
+  const googleTypes = convertAmazonCategoriesToGoogle({
+    PlaceId: "TEST_PLACE_ID",
+    PlaceType: "District",
+    PricingBucket: "",
+    Title: "CoolPlace",
+  });
+
+  expect(googleTypes).toStrictEqual(["neighborhood", "political"]);
+});
+
+test("should convert Street PlaceType to correct types", () => {
+  const googleTypes = convertAmazonCategoriesToGoogle({
+    PlaceId: "TEST_PLACE_ID",
+    PlaceType: "Street",
+    PricingBucket: "",
+    Title: "CoolPlace",
+  });
+
+  expect(googleTypes).toStrictEqual(["route"]);
+});
+
+test("should convert PointAddress PlaceType to correct types", () => {
+  const googleTypes = convertAmazonCategoriesToGoogle({
+    PlaceId: "TEST_PLACE_ID",
+    PlaceType: "PointAddress",
+    PricingBucket: "",
+    Title: "CoolPlace",
+  });
+
+  expect(googleTypes).toStrictEqual(["premise"]);
+});
+
+test("plus_code for non-us countries should use country name instead of region", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Country: {
+          Code2: "FR",
+          Code3: "FRA",
+          Name: "France",
+        },
+        Locality: "Cool Place",
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["plus_code"],
+    false,
+  );
+
+  expect(googlePlace.plus_code?.global_code).toStrictEqual("86247793+7M");
+  expect(googlePlace.plus_code?.compound_code).toStrictEqual("7793+7M Cool Place, France");
+});
+
+test("address_components should be empty if Address is missing from Place", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["address_components"],
+    true,
+  );
+
+  expect(googlePlace.address_components).toHaveLength(0);
+});
+
+test("address_components SubRegion should use Code as long_name if no Name is given", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Country: {
+          Code2: "US",
+          Code3: "USA",
+          Name: "United States",
+        },
+        Region: {
+          Code: "TX",
+          Name: "Texas",
+        },
+        SubRegion: {
+          Code: "Cool Code",
+        },
+        Locality: "Austin",
+        District: "Cool District",
+        PostalCode: "78704",
+        Street: "Cool Place Road",
+        AddressNumber: "1337",
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["address_components"],
+    true,
+  );
+
+  expect(googlePlace.address_components).toHaveLength(8);
+  if (googlePlace.address_components) {
+    expect(googlePlace.address_components[4].long_name).toStrictEqual("Cool Code");
+    expect(googlePlace.address_components[4].short_name).toStrictEqual("Cool Code");
+  }
+});
+
+test("address_components Region should use Code as long_name if no Name is given", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Country: {
+          Code2: "US",
+          Code3: "USA",
+          Name: "United States",
+        },
+        Region: {
+          Code: "TX",
+        },
+        SubRegion: {
+          Name: "Cool SubRegion",
+        },
+        Locality: "Austin",
+        District: "Cool District",
+        PostalCode: "78704",
+        Street: "Cool Place Road",
+        AddressNumber: "1337",
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["address_components"],
+    true,
+  );
+
+  expect(googlePlace.address_components).toHaveLength(8);
+  if (googlePlace.address_components) {
+    expect(googlePlace.address_components[5].long_name).toStrictEqual("TX");
+    expect(googlePlace.address_components[5].short_name).toStrictEqual("TX");
+  }
+});
+
+test("address_components Region should use Name as short_name if no Code is given", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Country: {
+          Code2: "US",
+          Code3: "USA",
+          Name: "United States",
+        },
+        Region: {
+          Name: "Texas",
+        },
+        SubRegion: {
+          Name: "Cool SubRegion",
+        },
+        Locality: "Austin",
+        District: "Cool District",
+        PostalCode: "78704",
+        Street: "Cool Place Road",
+        AddressNumber: "1337",
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["address_components"],
+    true,
+  );
+
+  expect(googlePlace.address_components).toHaveLength(8);
+  if (googlePlace.address_components) {
+    expect(googlePlace.address_components[5].long_name).toStrictEqual("Texas");
+    expect(googlePlace.address_components[5].short_name).toStrictEqual("Texas");
+  }
+});
+
+test("address_components Country should use Code as long_name if no Name is given", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Country: {
+          Code2: "US",
+        },
+        Region: {
+          Code: "TX",
+        },
+        SubRegion: {
+          Name: "Cool SubRegion",
+        },
+        Locality: "Austin",
+        District: "Cool District",
+        PostalCode: "78704",
+        Street: "Cool Place Road",
+        AddressNumber: "1337",
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["address_components"],
+    true,
+  );
+
+  expect(googlePlace.address_components).toHaveLength(8);
+  if (googlePlace.address_components) {
+    expect(googlePlace.address_components[6].long_name).toStrictEqual("US");
+    expect(googlePlace.address_components[6].short_name).toStrictEqual("US");
+  }
+});
+
+test("address_components Country should use Name as short_name if no Code2 is given", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Country: {
+          Name: "United States",
+        },
+        Region: {
+          Code: "TX",
+        },
+        SubRegion: {
+          Name: "Cool SubRegion",
+        },
+        Locality: "Austin",
+        District: "Cool District",
+        PostalCode: "78704",
+        Street: "Cool Place Road",
+        AddressNumber: "1337",
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["address_components"],
+    true,
+  );
+
+  expect(googlePlace.address_components).toHaveLength(8);
+  if (googlePlace.address_components) {
+    expect(googlePlace.address_components[6].long_name).toStrictEqual("United States");
+    expect(googlePlace.address_components[6].short_name).toStrictEqual("United States");
+  }
+});
+
+test("adr_address should be empty if Address is missing from Place", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["adr_address"],
+    true,
+  );
+
+  expect(googlePlace.adr_address).toStrictEqual("");
+});
+
+test("adr_address Region should use Name if Code is missing", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Region: {
+          Name: "Texas",
+        },
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["adr_address"],
+    true,
+  );
+
+  expect(googlePlace.adr_address).toStrictEqual('<span class="region">Texas</span>');
+});
+
+test("adr_address Country should use Code3 if there is a space in the Name", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Country: {
+          Code3: "USA",
+          Name: "United States",
+        },
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["adr_address"],
+    true,
+  );
+
+  expect(googlePlace.adr_address).toStrictEqual('<span class="country-name">USA</span>');
+});
+
+test("vicinity should be empty if Locality is missing", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Country: {
+          Code3: "USA",
+          Name: "United States",
+        },
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["vicinity"],
+    true,
+  );
+
+  expect(googlePlace.vicinity).toBeUndefined();
+});
+
+test("website should be empty if Contacts.Websites is missing", () => {
+  const googlePlace = convertAmazonPlaceToGoogle(
+    {
+      Address: {
+        Label: testPlaceWithAddressLabel,
+        Country: {
+          Code3: "USA",
+          Name: "United States",
+        },
+      },
+      PlaceId: "TEST_PLACE_ID",
+      PlaceType: "PointOfInterest",
+      Position: [testLng, testLat],
+      PricingBucket: "",
+      Title: "CoolPlace",
+    },
+    ["website"],
+    true,
+  );
+
+  expect(googlePlace.website).toBeUndefined();
+});
+
 test("textSearch should ignore location if bounds was also specified", (done) => {
   const east = 0;
   const north = 1;
@@ -311,13 +1507,13 @@ test("textSearch should ignore location if bounds was also specified", (done) =>
     const firstResult = results[0];
 
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toStrictEqual([west, south, east, north]);
+    expect(clientInput.Filter?.BoundingBox).toStrictEqual([west, south, east, north]);
     expect(clientInput.BiasPosition).toBeUndefined();
 
-    expect(firstResult.name).toStrictEqual("Austin");
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -340,13 +1536,13 @@ test("textSearch should accept bounds as a literal", (done) => {
     const firstResult = results[0];
 
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toStrictEqual([west, south, east, north]);
+    expect(clientInput.Filter?.BoundingBox).toStrictEqual([west, south, east, north]);
     expect(clientInput.BiasPosition).toBeUndefined();
 
-    expect(firstResult.name).toStrictEqual("Austin");
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -365,13 +1561,40 @@ test("textSearch should accept location bias if there is no bounds specified", (
     const firstResult = results[0];
 
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
-    expect(clientInput.FilterBBox).toBeUndefined();
+    expect(clientInput.Filter?.BoundingBox).toBeUndefined();
 
-    expect(firstResult.name).toStrictEqual("Austin");
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
+    expect(status).toStrictEqual(PlacesServiceStatus.OK);
+
+    // Signal the unit test is complete
+    done();
+  });
+});
+
+test("textSearch should bias towards a circle if both location and radius are specified", (done) => {
+  const request = {
+    query: "cool places in austin",
+    location: { lat: testLat, lng: testLng },
+    radius: 1337,
+  };
+
+  placesService.textSearch(request, (results, status) => {
+    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
+
+    expect(clientInput.Filter?.BoundingBox).toBeUndefined();
+    expect(clientInput.BiasPosition).toBeUndefined();
+    expect(clientInput.Filter?.Circle).toStrictEqual({
+      Center: [testLng, testLat],
+      Radius: 1337,
+    });
+
+    expect(results.length).toStrictEqual(1);
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -391,13 +1614,13 @@ test("textSearch should accept language", (done) => {
     const firstResult = results[0];
 
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
     expect(clientInput.Language).toStrictEqual("en");
 
-    expect(firstResult.name).toStrictEqual("Austin");
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -417,13 +1640,13 @@ test("textSearch should convert region to countries filter", (done) => {
     const firstResult = results[0];
 
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
+    const clientInput: SearchTextRequest = mockedClientSend.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
-    expect(clientInput.FilterCountries).toStrictEqual(["us"]);
+    expect(clientInput.Filter?.IncludeCountries).toStrictEqual(["us"]);
 
-    expect(firstResult.name).toStrictEqual("Austin");
+    expect(firstResult.name).toStrictEqual("1337 Cool Place Road");
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -455,10 +1678,10 @@ test("getQueryPredictions should accept locationBias as LatLng", (done) => {
 
   autocompleteService.getQueryPredictions(request, (results, status) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toBeUndefined();
+    expect(clientInput.Filter?.BoundingBox).toBeUndefined();
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
 
     expect(results.length).toStrictEqual(2);
@@ -466,10 +1689,38 @@ test("getQueryPredictions should accept locationBias as LatLng", (done) => {
     const firstResult = results[0];
     expect(firstResult.description).toStrictEqual("cool places near austin");
     expect(firstResult.place_id).toBeUndefined();
+    expect(firstResult.reference).toBeUndefined();
+
+    const firstTerms = firstResult.terms;
+    expect(firstTerms.length).toStrictEqual(1);
+    expect(firstTerms[0].offset).toStrictEqual(0);
+    expect(firstTerms[0].value).toStrictEqual("cool places near austin");
+
+    const firstMatchedSubstrings = firstResult.matched_substrings;
+    expect(firstMatchedSubstrings.length).toStrictEqual(1);
+    expect(firstMatchedSubstrings[0].offset).toStrictEqual(0);
+    expect(firstMatchedSubstrings[0].length).toStrictEqual(3);
 
     const secondResult = results[1];
-    expect(secondResult.description).toStrictEqual("123 cool place way, austin, tx");
+    expect(secondResult.description).toStrictEqual("123 Cool Place Way, Austin, TX, United States");
     expect(secondResult.place_id).toStrictEqual("COOL_PLACE_1");
+    expect(secondResult.reference).toStrictEqual("COOL_PLACE_1");
+
+    const secondTerms = secondResult.terms;
+    expect(secondTerms.length).toStrictEqual(4);
+    expect(secondTerms[0].offset).toStrictEqual(0);
+    expect(secondTerms[0].value).toStrictEqual("123 Cool Place Way");
+    expect(secondTerms[1].offset).toStrictEqual(20);
+    expect(secondTerms[1].value).toStrictEqual("Austin");
+    expect(secondTerms[2].offset).toStrictEqual(28);
+    expect(secondTerms[2].value).toStrictEqual("TX");
+    expect(secondTerms[3].offset).toStrictEqual(32);
+    expect(secondTerms[3].value).toStrictEqual("United States");
+
+    const secondMatchedSubstrings = secondResult.matched_substrings;
+    expect(secondMatchedSubstrings.length).toStrictEqual(1);
+    expect(secondMatchedSubstrings[0].offset).toStrictEqual(0);
+    expect(secondMatchedSubstrings[0].length).toStrictEqual(3);
 
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
@@ -486,22 +1737,13 @@ test("getQueryPredictions should accept locationBias as LatLngLiteral", (done) =
 
   autocompleteService.getQueryPredictions(request, (results, status) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toBeUndefined();
+    expect(clientInput.Filter?.BoundingBox).toBeUndefined();
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
 
     expect(results.length).toStrictEqual(2);
-
-    const firstResult = results[0];
-    expect(firstResult.description).toStrictEqual("cool places near austin");
-    expect(firstResult.place_id).toBeUndefined();
-
-    const secondResult = results[1];
-    expect(secondResult.description).toStrictEqual("123 cool place way, austin, tx");
-    expect(secondResult.place_id).toStrictEqual("COOL_PLACE_1");
-
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -521,22 +1763,13 @@ test("getQueryPredictions should accept locationBias as LatLngBounds", (done) =>
 
   autocompleteService.getQueryPredictions(request, (results, status) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toStrictEqual([west, south, east, north]);
+    expect(clientInput.Filter?.BoundingBox).toStrictEqual([west, south, east, north]);
     expect(clientInput.BiasPosition).toBeUndefined();
 
     expect(results.length).toStrictEqual(2);
-
-    const firstResult = results[0];
-    expect(firstResult.description).toStrictEqual("cool places near austin");
-    expect(firstResult.place_id).toBeUndefined();
-
-    const secondResult = results[1];
-    expect(secondResult.description).toStrictEqual("123 cool place way, austin, tx");
-    expect(secondResult.place_id).toStrictEqual("COOL_PLACE_1");
-
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -556,22 +1789,13 @@ test("getQueryPredictions should accept locationBias as LatLngBoundsLiteral", (d
 
   autocompleteService.getQueryPredictions(request, (results, status) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toStrictEqual([west, south, east, north]);
+    expect(clientInput.Filter?.BoundingBox).toStrictEqual([west, south, east, north]);
     expect(clientInput.BiasPosition).toBeUndefined();
 
     expect(results.length).toStrictEqual(2);
-
-    const firstResult = results[0];
-    expect(firstResult.description).toStrictEqual("cool places near austin");
-    expect(firstResult.place_id).toBeUndefined();
-
-    const secondResult = results[1];
-    expect(secondResult.description).toStrictEqual("123 cool place way, austin, tx");
-    expect(secondResult.place_id).toStrictEqual("COOL_PLACE_1");
-
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -592,22 +1816,13 @@ test("getQueryPredictions should ignore location if bounds was also specified", 
 
   autocompleteService.getQueryPredictions(request, (results, status) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toStrictEqual([west, south, east, north]);
+    expect(clientInput.Filter?.BoundingBox).toStrictEqual([west, south, east, north]);
     expect(clientInput.BiasPosition).toBeUndefined();
 
     expect(results.length).toStrictEqual(2);
-
-    const firstResult = results[0];
-    expect(firstResult.description).toStrictEqual("cool places near austin");
-    expect(firstResult.place_id).toBeUndefined();
-
-    const secondResult = results[1];
-    expect(secondResult.description).toStrictEqual("123 cool place way, austin, tx");
-    expect(secondResult.place_id).toStrictEqual("COOL_PLACE_1");
-
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -627,22 +1842,13 @@ test("getQueryPredictions should accept bounds as a literal", (done) => {
 
   autocompleteService.getQueryPredictions(request, (results, status) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toStrictEqual([west, south, east, north]);
+    expect(clientInput.Filter?.BoundingBox).toStrictEqual([west, south, east, north]);
     expect(clientInput.BiasPosition).toBeUndefined();
 
     expect(results.length).toStrictEqual(2);
-
-    const firstResult = results[0];
-    expect(firstResult.description).toStrictEqual("cool places near austin");
-    expect(firstResult.place_id).toBeUndefined();
-
-    const secondResult = results[1];
-    expect(secondResult.description).toStrictEqual("123 cool place way, austin, tx");
-    expect(secondResult.place_id).toStrictEqual("COOL_PLACE_1");
-
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -658,22 +1864,40 @@ test("getQueryPredictions should accept location if there is no bounds specified
 
   autocompleteService.getQueryPredictions(request, (results, status) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
-    expect(clientInput.FilterBBox).toBeUndefined();
+    expect(clientInput.Filter?.BoundingBox).toBeUndefined();
 
     expect(results.length).toStrictEqual(2);
+    expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
-    const firstResult = results[0];
-    expect(firstResult.description).toStrictEqual("cool places near austin");
-    expect(firstResult.place_id).toBeUndefined();
+    // Signal the unit test is complete
+    done();
+  });
+});
 
-    const secondResult = results[1];
-    expect(secondResult.description).toStrictEqual("123 cool place way, austin, tx");
-    expect(secondResult.place_id).toStrictEqual("COOL_PLACE_1");
+test("getQueryPredictions should bias towards a circle if both location and radius are specified", (done) => {
+  const request = {
+    input: "cool place",
+    location: { lat: testLat, lng: testLng },
+    radius: 1337,
+  };
 
+  autocompleteService.getQueryPredictions(request, (results, status) => {
+    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
+
+    expect(clientInput.Filter?.BoundingBox).toBeUndefined();
+    expect(clientInput.BiasPosition).toBeUndefined();
+    expect(clientInput.Filter?.Circle).toStrictEqual({
+      Center: [testLng, testLat],
+      Radius: 1337,
+    });
+
+    expect(results.length).toStrictEqual(2);
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -690,22 +1914,13 @@ test("getQueryPredictions should accept language", (done) => {
 
   autocompleteService.getQueryPredictions(request, (results, status) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
     expect(clientInput.Language).toStrictEqual("en");
 
     expect(results.length).toStrictEqual(2);
-
-    const firstResult = results[0];
-    expect(firstResult.description).toStrictEqual("cool places near austin");
-    expect(firstResult.place_id).toBeUndefined();
-
-    const secondResult = results[1];
-    expect(secondResult.description).toStrictEqual("123 cool place way, austin, tx");
-    expect(secondResult.place_id).toStrictEqual("COOL_PLACE_1");
-
     expect(status).toStrictEqual(PlacesServiceStatus.OK);
 
     // Signal the unit test is complete
@@ -741,17 +1956,17 @@ test("getPlacePredictions should only return result with place_id", (done) => {
 
   autocompleteService.getPlacePredictions(request).then((response) => {
     expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+    const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
-    expect(clientInput.FilterBBox).toBeUndefined();
+    expect(clientInput.Filter?.BoundingBox).toBeUndefined();
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
 
     const predictions = response.predictions;
     expect(predictions.length).toStrictEqual(1);
 
     const prediction = predictions[0];
-    expect(prediction.description).toStrictEqual("123 cool place way, austin, tx");
+    expect(prediction.description).toStrictEqual("123 Cool Place Way, Austin, TX, United States");
     expect(prediction.place_id).toStrictEqual("COOL_PLACE_1");
 
     // Signal the unit test is complete
@@ -770,24 +1985,24 @@ test("getPlacePredictions will also invoke the callback if specified", (done) =>
       expect(results.length).toStrictEqual(1);
 
       const firstResult = results[0];
-      expect(firstResult.description).toStrictEqual("123 cool place way, austin, tx");
+      expect(firstResult.description).toStrictEqual("123 Cool Place Way, Austin, TX, United States");
       expect(firstResult.place_id).toStrictEqual("COOL_PLACE_1");
 
       expect(status).toStrictEqual(PlacesServiceStatus.OK);
     })
     .then((response) => {
       expect(mockedClientSend).toHaveBeenCalledTimes(1);
-      expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForSuggestionsCommand));
-      const clientInput = mockedClientSend.mock.calls[0][0].input;
+      expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SuggestCommand));
+      const clientInput: SuggestRequest = mockedClientSend.mock.calls[0][0].input;
 
-      expect(clientInput.FilterBBox).toBeUndefined();
+      expect(clientInput.Filter?.BoundingBox).toBeUndefined();
       expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
 
       const predictions = response.predictions;
       expect(predictions.length).toStrictEqual(1);
 
       const prediction = predictions[0];
-      expect(prediction.description).toStrictEqual("123 cool place way, austin, tx");
+      expect(prediction.description).toStrictEqual("123 Cool Place Way, Austin, TX, United States");
       expect(prediction.place_id).toStrictEqual("COOL_PLACE_1");
 
       // Signal the unit test is complete
@@ -855,6 +2070,9 @@ test("SearchBox should be able to set and get the bounds option", () => {
 });
 
 test("SearchBox should return first suggestion result when pressing Enter", (done) => {
+  // We need to re-enable real timers for this test because the underlying geocoder widget relies on it
+  jest.useRealTimers();
+
   const inputElement = document.createElement("input");
   document.body.appendChild(inputElement);
   const searchBox = new MigrationSearchBox(inputElement, {
@@ -865,12 +2083,15 @@ test("SearchBox should return first suggestion result when pressing Enter", (don
     const places = searchBox.getPlaces();
 
     expect(places.length).toStrictEqual(1);
-    expect(mockedClientSend).toHaveBeenCalledTimes(2);
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(2);
 
     const place = places[0];
 
     expect(place.formatted_address).toStrictEqual(testPlaceLabel);
     expect(place.place_id).toStrictEqual("KEEP_AUSTIN_WEIRD");
+
+    // Once this test is done we re-enable our fake timers
+    jest.useFakeTimers();
 
     done();
   });
@@ -898,7 +2119,7 @@ test("SearchBox should handle single place result when clicked on", (done) => {
     const places = searchBox.getPlaces();
 
     expect(places.length).toStrictEqual(1);
-    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
 
     const place = places[0];
 
@@ -944,7 +2165,7 @@ test("SearchBox should handle user selecting an item from the list after choosin
     const places = searchBox.getPlaces();
 
     expect(places.length).toStrictEqual(1);
-    expect(mockedClientSend).toHaveBeenCalledTimes(1);
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
 
     const place = places[0];
 
@@ -1252,9 +2473,9 @@ test("searchByText should ignore locationBias if locationRestriction was also sp
     expect(places.length).toStrictEqual(1);
     const firstResult = places[0];
 
-    expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+    expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
+    const clientInput = mockedClientSendV1.mock.calls[0][0].input;
 
     expect(clientInput.FilterBBox).toStrictEqual([west, south, east, north]);
     expect(clientInput.BiasPosition).toBeUndefined();
@@ -1285,9 +2506,9 @@ test("searchByText should accept bounds as a literal", (done) => {
     expect(places.length).toStrictEqual(1);
     const firstResult = places[0];
 
-    expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+    expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
+    const clientInput = mockedClientSendV1.mock.calls[0][0].input;
 
     expect(clientInput.FilterBBox).toStrictEqual([west, south, east, north]);
     expect(clientInput.BiasPosition).toBeUndefined();
@@ -1312,9 +2533,9 @@ test("searchByText should accept location bias if there is no bounds specified",
     expect(places.length).toStrictEqual(1);
     const firstResult = places[0];
 
-    expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+    expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
+    const clientInput = mockedClientSendV1.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
     expect(clientInput.FilterBBox).toBeUndefined();
@@ -1340,9 +2561,9 @@ test("searchByText should only return the specified fields", (done) => {
     expect(places.length).toStrictEqual(1);
     const firstResult = places[0];
 
-    expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+    expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
+    const clientInput = mockedClientSendV1.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
     expect(clientInput.Language).toStrictEqual("en");
@@ -1369,9 +2590,9 @@ test("searchByText should accept language", (done) => {
     expect(places.length).toStrictEqual(1);
     const firstResult = places[0];
 
-    expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+    expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
+    const clientInput = mockedClientSendV1.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
     expect(clientInput.Language).toStrictEqual("en");
@@ -1397,9 +2618,9 @@ test("searchByText should accept maxResultCount", (done) => {
     expect(places.length).toStrictEqual(1);
     const firstResult = places[0];
 
-    expect(mockedClientSend).toHaveBeenCalledTimes(1);
-    expect(mockedClientSend).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
-    const clientInput = mockedClientSend.mock.calls[0][0].input;
+    expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+    expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(SearchPlaceIndexForTextCommand));
+    const clientInput = mockedClientSendV1.mock.calls[0][0].input;
 
     expect(clientInput.BiasPosition).toStrictEqual([testLng, testLat]);
     expect(clientInput.MaxResults).toStrictEqual(4);
@@ -1495,8 +2716,8 @@ test("fetchFields should return only specified fields", async () => {
     fields: ["formattedAddress", "location"],
   });
 
-  expect(mockedClientSend).toHaveBeenCalledTimes(1);
-  expect(mockedClientSend).toHaveBeenCalledWith(expect.any(GetPlaceCommand));
+  expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+  expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(GetPlaceCommandV1));
 
   // Properties for the requested fields on the newPlace instance should
   // be filled in after calling fetchFields
@@ -1527,8 +2748,8 @@ test("fetchFields should return all fields if specified", async () => {
     fields: ["*"],
   });
 
-  expect(mockedClientSend).toHaveBeenCalledTimes(1);
-  expect(mockedClientSend).toHaveBeenCalledWith(expect.any(GetPlaceCommand));
+  expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+  expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(GetPlaceCommandV1));
 
   // Properties for all fields on the newPlace instance should
   // be filled in after calling fetchFields
@@ -1554,9 +2775,9 @@ test("fetchFields should pass language if specified", async () => {
     fields: ["*"],
   });
 
-  expect(mockedClientSend).toHaveBeenCalledTimes(1);
-  expect(mockedClientSend).toHaveBeenCalledWith(expect.any(GetPlaceCommand));
-  const clientInput = mockedClientSend.mock.calls[0][0].input;
+  expect(mockedClientSendV1).toHaveBeenCalledTimes(1);
+  expect(mockedClientSendV1).toHaveBeenCalledWith(expect.any(GetPlaceCommandV1));
+  const clientInput = mockedClientSendV1.mock.calls[0][0].input;
 
   expect(clientInput.Language).toStrictEqual("en");
 
