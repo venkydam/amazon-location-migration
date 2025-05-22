@@ -53,6 +53,7 @@ function calculateAndDisplayRoute(directionsService, directionsRenderer) {
       });
     }
   }
+
   // make route call
   directionsService
     .route({

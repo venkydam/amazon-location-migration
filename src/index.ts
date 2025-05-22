@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { withAPIKey } from "@aws/amazon-location-utilities-auth-helper";
-import { LocationClient } from "@aws-sdk/client-location";
 import { GeoPlacesClient } from "@aws-sdk/client-geo-places";
 import { GeoRoutesClient } from "@aws-sdk/client-geo-routes";
 
@@ -74,9 +73,6 @@ const apiKey = urlParams.get("apiKey");
 const defaultRegion = "us-west-2";
 const region = urlParams.get("region") || defaultRegion;
 
-// Optional, but if user wants to perform any Route requests, this is required
-const routeCalculatorName = urlParams.get("routeCalculator");
-
 // Optional, will invoke after migrationInit has finished executing
 const postMigrationCallback = urlParams.get("callback");
 
@@ -87,15 +83,6 @@ const migrationInit = async function () {
 
   // Create an authentication helper instance using an API key
   const authHelper = await withAPIKey(apiKey);
-
-  // TODO: We still create a V1 client for now while we are in the process of converting all APIs to V2
-  const apiKeyV1 = apiKey;
-  const authHelperV1 = await withAPIKey(apiKeyV1);
-  const clientV1 = new LocationClient({
-    region: "us-west-2", // Region containing Amazon Location resource
-    customUserAgent: `migration-sdk-${PACKAGE_VERSION}`, // Append tag with SDK version to the default user agent
-    ...authHelperV1.getClientConfig(), // Configures the client to use API keys when making supported requests
-  });
 
   const placesClient = new GeoPlacesClient({
     region: region, // Region containing Amazon Location resource
@@ -117,8 +104,7 @@ const migrationInit = async function () {
   MigrationPlacesService.prototype._client = placesClient;
   MigrationSearchBox.prototype._client = placesClient;
   MigrationDirectionsService.prototype._client = routesClient;
-  MigrationDistanceMatrixService.prototype._client = clientV1;
-  MigrationDistanceMatrixService.prototype._routeCalculatorName = routeCalculatorName;
+  MigrationDistanceMatrixService.prototype._client = routesClient;
 
   // Additionally, we need to create a places service for our directions service and distance matrix
   // service to use, since it can optionally be passed source/destinations that are string queries
