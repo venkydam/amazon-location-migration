@@ -2847,7 +2847,7 @@ test("should return route with origin as LatLng and destination as LatLng", (don
 
   directionsService.route(request).then((response) => {
     // Since origin and destination are both specified as parseable values, the only mocked
-    // GeoPlacesClient call should be the CalculateRoutesCommand
+    // GeoRoutesClient call should be the CalculateRoutesCommand
     expect(mockedRoutesClientSend).toHaveBeenCalledTimes(1);
     expect(mockedRoutesClientSend).toHaveBeenCalledWith(expect.any(CalculateRoutesCommand));
 
@@ -2888,7 +2888,7 @@ test("should return route with origin as LatLng and destination as Place.locatio
 
   directionsService.route(request).then((response) => {
     // Since origin and destination are both specified as parseable values, the only mocked
-    // GeoPlacesClient call should be the CalculateRoutesCommand
+    // GeoRoutesClient call should be the CalculateRoutesCommand
     expect(mockedRoutesClientSend).toHaveBeenCalledTimes(1);
     expect(mockedRoutesClientSend).toHaveBeenCalledWith(expect.any(CalculateRoutesCommand));
 
@@ -3015,8 +3015,8 @@ test("should return route with origin as Place.placeId and destination as Place.
     const start_location = leg.start_location;
     const end_location = leg.end_location;
     expect(distance).toStrictEqual({
-      text: "4047 km",
-      value: 4047000,
+      text: "4.0 km",
+      value: 4047,
     });
     expect(steps.length).toStrictEqual(7);
     expect(duration).toStrictEqual({
@@ -3050,7 +3050,7 @@ test("should return route with origin as LatLng and destination as LatLng with c
   directionsService
     .route(request, (results, status) => {
       // Since origin and destination are both specified as parseable values, the only mocked
-      // GeoPlacesClient call should be the CalculateRoutesCommand
+      // GeoRoutesClient call should be the CalculateRoutesCommand
       expect(mockedRoutesClientSend).toHaveBeenCalledTimes(1);
       expect(mockedRoutesClientSend).toHaveBeenCalledWith(expect.any(CalculateRoutesCommand));
 
@@ -3468,8 +3468,10 @@ test("should return getDistanceMatrix with origin as Place.placeId and destinati
   distanceMatrixService.getDistanceMatrix(request).then((response) => {
     // Since origin was a placeId and destination was a query input, these will trigger a
     // getDetails and findPlaceFromQuery request (respectively) to retrieve the location geometry,
-    // once these are processed, the response will have origin and destination positions which will need converting to human readable addresses via ReverseGeocodeCommand
-    // so there will be a total of 4 mocked GeoPlacesClient.send calls (2 for the places query, 2 for reverseGeocode) and  1 mocked GeoRoutesClient.send call for distance matrix
+    // once these are processed, the response will have origin and destination positions which will
+    // need converting to human readable addresses via ReverseGeocodeCommand.
+    // So, there will be a total of 4 mocked GeoPlacesClient.send calls (2 for the places query,
+    // 2 for reverseGeocode) and  1 mocked GeoRoutesClient.send call for distance matrix
     expect(mockedRoutesClientSend).toHaveBeenCalledTimes(1);
     expect(mockedPlacesClientSend).toHaveBeenCalledTimes(4);
     expect(mockedPlacesClientSend).toHaveBeenCalledWith(expect.any(SearchTextCommand));
@@ -3485,8 +3487,8 @@ test("should return getDistanceMatrix with origin as Place.placeId and destinati
 
     const element = row.elements[0];
     expect(element.distance).toStrictEqual({
-      text: "12 km",
-      value: 12000,
+      text: "12 m",
+      value: 12,
     });
     expect(element.duration).toStrictEqual({
       text: "1 min",
@@ -3527,7 +3529,7 @@ test("should call getDistanceMatrix with options avoidFerries set to true and av
           Origins: [{ Position: [4, 3] }],
           Destinations: [{ Position: [8, 7] }],
           TravelMode: RouteTravelMode.CAR,
-          RoutingBoundary: { Geometry: { BoundingBox: [3, 4, 7, 8] }, Unbounded: false },
+          RoutingBoundary: { Geometry: { BoundingBox: [4, 3, 8, 7] }, Unbounded: false },
         },
       }),
     );
@@ -3561,7 +3563,7 @@ test("should call getDistanceMatrix with options avoidHighways and avoidTolls se
           Origins: [{ Position: [4, 3] }],
           Destinations: [{ Position: [8, 7] }],
           TravelMode: RouteTravelMode.CAR,
-          RoutingBoundary: { Geometry: { BoundingBox: [3, 4, 7, 8] }, Unbounded: false },
+          RoutingBoundary: { Geometry: { BoundingBox: [4, 3, 8, 7] }, Unbounded: false },
         },
       }),
     );
@@ -3595,7 +3597,7 @@ test("should call getDistanceMatrix with options avoidHighways and avoidFerries 
           Origins: [{ Position: [4, 3] }],
           Destinations: [{ Position: [8, 7] }],
           TravelMode: RouteTravelMode.CAR,
-          RoutingBoundary: { Geometry: { BoundingBox: [3, 4, 7, 8] }, Unbounded: false },
+          RoutingBoundary: { Geometry: { BoundingBox: [4, 3, 8, 7] }, Unbounded: false },
         },
       }),
     );
@@ -3630,7 +3632,7 @@ test("should call getDistanceMatrix with options travel mode set to driving, uni
           Origins: [{ Position: [4, 3] }],
           Destinations: [{ Position: [8, 7] }],
           TravelMode: RouteTravelMode.CAR,
-          RoutingBoundary: { Geometry: { BoundingBox: [3, 4, 7, 8] }, Unbounded: false },
+          RoutingBoundary: { Geometry: { BoundingBox: [4, 3, 8, 7] }, Unbounded: false },
           DepartureTime: new Date("2000-01-01").toISOString(),
         },
       }),
@@ -3663,7 +3665,7 @@ test("should call getDistanceMatrix with options travel mode set to walking and 
           Origins: [{ Position: [4, 3] }],
           Destinations: [{ Position: [8, 7] }],
           TravelMode: RouteTravelMode.PEDESTRIAN,
-          RoutingBoundary: { Geometry: { BoundingBox: [3, 4, 7, 8] }, Unbounded: false },
+          RoutingBoundary: { Geometry: { BoundingBox: [4, 3, 8, 7] }, Unbounded: false },
         },
       }),
     );
@@ -3770,8 +3772,8 @@ test("getDistanceMatrix will invoke the callback if specified", (done) => {
 
       const element = row.elements[0];
       expect(element.distance).toStrictEqual({
-        text: "12 km",
-        value: 12000,
+        text: "12 m",
+        value: 12,
       });
       expect(element.duration).toStrictEqual({
         text: "1 min",
@@ -3810,7 +3812,7 @@ test("should call getDistanceMatrix with options avoidTolls set to true", (done)
           Origins: [{ Position: [4, 3] }],
           Destinations: [{ Position: [8, 7] }],
           TravelMode: RouteTravelMode.CAR,
-          RoutingBoundary: { Geometry: { BoundingBox: [3, 4, 7, 8] }, Unbounded: false },
+          RoutingBoundary: { Geometry: { BoundingBox: [4, 3, 8, 7] }, Unbounded: false },
         },
       }),
     );
@@ -3843,7 +3845,7 @@ test("should call getDistanceMatrix with options avoidHighways set to true", (do
           Origins: [{ Position: [4, 3] }],
           Destinations: [{ Position: [8, 7] }],
           TravelMode: RouteTravelMode.CAR,
-          RoutingBoundary: { Geometry: { BoundingBox: [3, 4, 7, 8] }, Unbounded: false },
+          RoutingBoundary: { Geometry: { BoundingBox: [4, 3, 8, 7] }, Unbounded: false },
         },
       }),
     );

@@ -14,11 +14,13 @@ import { MigrationPlacesService } from "../places";
 
 import { DistanceMatrixElementStatus, DistanceMatrixStatus, TravelMode } from "./defines";
 import {
-  convertKilometersToGoogleDistanceText,
+  formatDistanceBasedOnUnitSystem,
   formatSecondsAsGoogleDurationText,
   parseOrFindLocations,
   populateAvoidOptions,
   getReverseGeocodedAddresses,
+  getUnitSystem,
+  ParseOrFindLocationResponse,
 } from "./helpers";
 
 import { createBoundsFromPositions } from "../common";
@@ -26,7 +28,6 @@ import { LngLat } from "maplibre-gl";
 
 // formatted_address needed for originAddresses and destinationAddresses
 const DISTANCE_MATRIX_FIND_LOCATION_FIELDS = ["geometry", "formatted_address"];
-const KILOMETERS_TO_METERS_CONSTANT = 1000;
 
 export class MigrationDistanceMatrixService {
   _client: GeoRoutesClient;
@@ -37,7 +38,7 @@ export class MigrationDistanceMatrixService {
   getDistanceMatrix(request: google.maps.DistanceMatrixRequest, callback?) {
     return new Promise<google.maps.DistanceMatrixResponse>((resolve, reject) => {
       parseOrFindLocations(request.origins, this._placesService, DISTANCE_MATRIX_FIND_LOCATION_FIELDS)
-        .then((originsResponse) => {
+        .then((originsResponse: ParseOrFindLocationResponse[]) => {
           parseOrFindLocations(request.destinations, this._placesService, DISTANCE_MATRIX_FIND_LOCATION_FIELDS)
             .then((destinationsResponse) => {
               // Map origins and destinations
@@ -49,10 +50,11 @@ export class MigrationDistanceMatrixService {
                 Position: destination.position,
               }));
 
-              // Combine all positions and convert from [lat,lng] to [lng,lat] using LngLat
+              // Combine all positions (parseOrFindLocations returns origin.Position and destination.Position
+              // in Lng Lat format so we do not need to convert here)
               const allPositions: LngLat[] = [
-                ...origins.map((origin) => new LngLat(origin.Position[1], origin.Position[0])),
-                ...destinations.map((destination) => new LngLat(destination.Position[1], destination.Position[0])),
+                ...origins.map((origin) => new LngLat(origin.Position[0], origin.Position[1])),
+                ...destinations.map((destination) => new LngLat(destination.Position[0], destination.Position[1])),
               ];
 
               const input: CalculateRouteMatrixRequest = {
@@ -134,14 +136,24 @@ export class MigrationDistanceMatrixService {
     calculateRouteMatrixResponse,
     originsResponse,
     destinationsResponse,
-    request,
+    request: google.maps.DistanceMatrixRequest,
   ): Promise<google.maps.DistanceMatrixResponse> {
     return new Promise((resolve) => {
+      const unitSystem = getUnitSystem(request, originsResponse[0].position);
+
       const distanceMatrixResponseRows = calculateRouteMatrixResponse.RouteMatrix.map((row) => ({
         elements: row.map((cell) => ({
           distance: {
-            text: convertKilometersToGoogleDistanceText(cell.Distance, request),
-            value: cell.Distance * KILOMETERS_TO_METERS_CONSTANT,
+            /*
+             * Google's Distance.text is based on unit system,
+             * whereas Amazon Location's Distance is always in meters,
+             * therefore needs to be translated to metric or imperial.
+             *
+             * Google's Distance.value is always in meters, so is Amazon Locations.
+             * therefore no translation is needed.
+             */
+            text: formatDistanceBasedOnUnitSystem(cell.Distance, unitSystem),
+            value: cell.Distance,
           },
           duration: {
             text: formatSecondsAsGoogleDurationText(cell.DurationSeconds),
