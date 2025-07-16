@@ -4,12 +4,17 @@
 import { MigrationLatLng, PlacesServiceStatus } from "../common";
 import { MigrationPlacesService } from "../places";
 import * as turf from "@turf/turf";
-import { UnitSystem } from "./defines";
+import { UnitSystem, TravelMode } from "./defines";
 import { usaGeoJson } from "./country_geojson/usa";
 import { myanmarGeoJson } from "./country_geojson/myanmar";
 import { liberiaGeoJson } from "./country_geojson/liberia";
 import { Position } from "geojson";
-import { CalculateRouteMatrixRequest, CalculateRoutesRequest } from "@aws-sdk/client-geo-routes";
+import {
+  CalculateRouteMatrixRequest,
+  CalculateRoutesRequest,
+  OptimizeWaypointsRequest,
+  RouteTravelMode,
+} from "@aws-sdk/client-geo-routes";
 import { GeoPlacesClient, ReverseGeocodeCommand, ReverseGeocodeRequest } from "@aws-sdk/client-geo-places";
 import { CountryGeoJSON } from "./country_geojson/countryType";
 
@@ -141,12 +146,12 @@ export function formatSecondsAsGoogleDurationText(seconds) {
  */
 export function populateAvoidOptions(
   request: google.maps.DistanceMatrixRequest | google.maps.DirectionsRequest,
-  input: CalculateRouteMatrixRequest | CalculateRoutesRequest,
+  input: CalculateRouteMatrixRequest | CalculateRoutesRequest | OptimizeWaypointsRequest,
 ) {
   if (request.avoidTolls) {
     input.Avoid = {
       TollRoads: true,
-      TollTransponders: true,
+      TollTransponders: true, // This property is not used by the OptimizeWaypointsRequest as it is not supported. We will keep it here for ease of use and simplified extensibility.
     };
   }
 
@@ -162,6 +167,31 @@ export function populateAvoidOptions(
       ...input.Avoid,
       ControlledAccessHighways: true,
     };
+  }
+}
+
+/**
+ * Populates the TravelMode option in the Amazon Location Service request based on the travelMode specified in the
+ * Google Maps request.
+ *
+ * @param options - The Google Maps request containing the travelMode option
+ * @param input - The Amazon Location Service request to be populated
+ */
+export function populateTravelModeOption(
+  options: google.maps.DirectionsRequest | google.maps.DistanceMatrixRequest,
+  input: CalculateRoutesRequest | CalculateRouteMatrixRequest | OptimizeWaypointsRequest,
+): void {
+  if ("travelMode" in options) {
+    switch (options.travelMode) {
+      case TravelMode.DRIVING: {
+        input.TravelMode = RouteTravelMode.CAR;
+        break;
+      }
+      case TravelMode.WALKING: {
+        input.TravelMode = RouteTravelMode.PEDESTRIAN;
+        break;
+      }
+    }
   }
 }
 
