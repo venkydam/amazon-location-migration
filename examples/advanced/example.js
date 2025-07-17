@@ -27,6 +27,7 @@ let currentPlaces = [];
 let currentDisplayedPlace;
 let inDirectionsMode = false;
 let travelMode;
+let currentTravelMode;
 
 // navigator.geolocation.getCurrentPosition can sometimes take a long time to return,
 // so just cache the new position after receiving it and use it next time
@@ -96,6 +97,7 @@ async function initMap(center) {
   // Setup the directions service + renderer, and attach it to our map
   const { DirectionsRenderer, DirectionsService, TravelMode } = await google.maps.importLibrary("routes");
   travelMode = TravelMode;
+  currentTravelMode = travelMode.DRIVING; // Initialize currentTravelMode with DRIVING
   directionsService = new DirectionsService();
 
   // Setup our directions renderers
@@ -248,6 +250,7 @@ async function initMap(center) {
     // Switch to show the directions panel
     $("#places-container").hide();
     $("#directions-container").show();
+    $("#travel-mode-container").show(); // Show the travel mode container when directions are rendered
 
     inDirectionsMode = true;
 
@@ -265,6 +268,7 @@ async function initMap(center) {
   $("#close-directions").click(() => {
     // Switch back to the places panel
     $("#directions-container").hide();
+    $("#travel-mode-container").hide(); // Hide the travel mode container when directions are closed
     $("#places-container").show();
 
     // Clear the directions from the map
@@ -283,6 +287,28 @@ async function initMap(center) {
 
     $hoursExpanded.slideToggle(200);
     $toggleButton.html(isExpanded ? "▼" : "▲");
+  });
+
+  // Handle travel mode selection
+  $(".travel-mode-option").click(function () {
+    // Remove active class from all options
+    $(".travel-mode-option").removeClass("active");
+
+    // Add active class to the clicked option
+    $(this).addClass("active");
+
+    // Get the selected travel mode
+    const selectedMode = $(this).data("mode");
+
+    // Update the current travel mode
+    if (selectedMode === "DRIVING") {
+      currentTravelMode = travelMode.DRIVING;
+    } else if (selectedMode === "WALKING") {
+      currentTravelMode = travelMode.WALKING;
+    }
+
+    // Recalculate the route with the new travel mode
+    calculateRoute();
   });
 }
 
@@ -303,7 +329,7 @@ function calculateRoute() {
     .route({
       origin: originLocation,
       destination: destinationLocation,
-      travelMode: travelMode.DRIVING,
+      travelMode: currentTravelMode,
       provideRouteAlternatives: true,
     })
     .then((response) => {
@@ -477,6 +503,7 @@ async function createMarker(place) {
 
 // Hide the details by default and hide the directions container
 $("#directions-container").hide();
+$("#travel-mode-container").hide(); // Initially hide the travel mode container
 updatePlacesDetails();
 
 // Get our starting position -> initMap
