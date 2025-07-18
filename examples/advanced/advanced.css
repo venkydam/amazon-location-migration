@@ -249,6 +249,18 @@
   color: #1a73e8;
 }
 
+/* Ensure origin-input appears on top of destination-input dropdown */
+#origin-container {
+  position: relative;
+  z-index: 4; /* Higher z-index than destination container */
+}
+
+/* Ensure destination-input appears below origin-input dropdown */
+#destination-container {
+  position: relative;
+  z-index: 3; /* Higher z-index than search panel elements, but lower z-index than origin-container */
+}
+
 .travel-mode-icon {
   font-size: 24px;
   margin-bottom: 4px;

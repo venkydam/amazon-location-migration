@@ -7,6 +7,7 @@ import {
   CalculateRoutesRequest,
   CalculateRoutesResponse,
   GeometryFormat,
+  MeasurementSystem,
   OptimizeWaypointsCommand,
   OptimizeWaypointsRequest,
   RouteLegAdditionalFeature,
@@ -18,6 +19,7 @@ import {
 import { encodeFromLngLatArray } from "@aws/polyline";
 
 import { DirectionsStatus, MigrationLatLng, MigrationLatLngBounds } from "../common";
+import { UnitSystem } from "./defines";
 import { MigrationPlacesService } from "../places";
 import {
   formatDistanceBasedOnUnitSystem,
@@ -81,6 +83,22 @@ export class MigrationDirectionsService {
               // default route that is calculated
               if (options.provideRouteAlternatives) {
                 input.MaxAlternatives = 2;
+              }
+
+              // Apply unit system options if specified and detect unit system based on origin location if not specified
+              let unitSystem;
+              if ("unitSystem" in options) {
+                if (options.unitSystem == google.maps.UnitSystem.IMPERIAL) {
+                  unitSystem = UnitSystem.IMPERIAL;
+                  input.InstructionsMeasurementSystem = MeasurementSystem.IMPERIAL;
+                } else {
+                  unitSystem = UnitSystem.METRIC;
+                  input.InstructionsMeasurementSystem = MeasurementSystem.METRIC;
+                }
+              } else {
+                unitSystem = getUnitSystem(options, originResponse.position);
+                input.InstructionsMeasurementSystem =
+                  unitSystem == UnitSystem.IMPERIAL ? MeasurementSystem.IMPERIAL : MeasurementSystem.METRIC;
               }
 
               // Call Amazon Location RouteCalculation API with waypoints
@@ -165,6 +183,7 @@ export class MigrationDirectionsService {
                             options,
                             originResponse,
                             destinationResponse,
+                            unitSystem,
                             callback,
                             reorderedWaypointResponses,
                             waypointOrder,
@@ -195,6 +214,7 @@ export class MigrationDirectionsService {
                         options,
                         originResponse,
                         destinationResponse,
+                        unitSystem,
                         callback,
                         waypointResponses,
                       );
@@ -216,6 +236,7 @@ export class MigrationDirectionsService {
                   options,
                   originResponse,
                   destinationResponse,
+                  unitSystem,
                   callback,
                 );
               }
@@ -253,6 +274,7 @@ export class MigrationDirectionsService {
    * @param options - The original "route" request options
    * @param originResponse - The resolved origin location
    * @param destinationResponse - The resolved destination location
+   * @param unitSystem - The unit system to use for this "route"
    * @param callback - Optional callback function to be called with the result
    * @param waypointResponses - Optional array of resolved waypoint locations
    * @param waypointOrder - Optional array containing the order of waypoints after optimization
@@ -264,6 +286,7 @@ export class MigrationDirectionsService {
     options: google.maps.DirectionsRequest,
     originResponse: ParseOrFindLocationResponse,
     destinationResponse: ParseOrFindLocationResponse,
+    unitSystem: UnitSystem,
     callback?,
     waypointResponses?: ParseOrFindLocationResponse[],
     waypointOrder?: number[],
@@ -278,6 +301,7 @@ export class MigrationDirectionsService {
           options,
           originResponse,
           destinationResponse,
+          unitSystem,
           waypointResponses,
           waypointOrder,
         );
@@ -303,11 +327,10 @@ export class MigrationDirectionsService {
     options: google.maps.DirectionsRequest,
     originResponse,
     destinationResponse,
+    unitSystem,
     waypointResponses?,
     waypointOrder?: number[],
   ) {
-    const unitSystem = getUnitSystem(options, originResponse.position);
-
     const googleRoutes: google.maps.DirectionsRoute[] = [];
     response.Routes.forEach((route) => {
       let bounds = new MigrationLatLngBounds();

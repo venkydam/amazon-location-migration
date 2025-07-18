@@ -2055,6 +2055,7 @@ import {
   CalculateRouteMatrixCommand,
   CalculateRoutesRequest,
   RouteTravelMode,
+  MeasurementSystem,
 } from "@aws-sdk/client-geo-routes";
 
 const directionsService = new MigrationDirectionsService();
@@ -3676,6 +3677,80 @@ test("should call route with options avoidFerries set to true and avoidTolls set
     expect(clientInput.Avoid?.TollRoads).toStrictEqual(true);
     expect(clientInput.Avoid?.TollTransponders).toStrictEqual(true);
 
+    done();
+  });
+});
+
+test("should call route with unitSystem set to IMPERIAL", (done) => {
+  // Mock the google object with UnitSystem so that we can use "google.maps.UnitSystem.IMPERIAL".
+  // We need to make it a partial type so that we are not required to mock out the other properties
+  // of the google.maps object.
+  (global.google as Partial<typeof google>) = {
+    maps: {
+      UnitSystem: {
+        IMPERIAL: 0,
+        METRIC: 1,
+      },
+    } as unknown as typeof google.maps,
+  };
+
+  const request = {
+    origin: {
+      placeId: "KEEP_AUSTIN_WEIRD",
+    },
+    destination: {
+      query: "another cool place",
+    },
+    travelMode: TravelMode.DRIVING,
+    unitSystem: google.maps.UnitSystem.IMPERIAL,
+  };
+
+  directionsService.route(request).then(() => {
+    expect(mockedRoutesClientSend).toHaveBeenCalledWith(expect.any(CalculateRoutesCommand));
+    const clientInput: CalculateRoutesRequest = mockedRoutesClientSend.mock.calls[0][0].input;
+
+    // Check that InstructionsMeasurementSystem is set to IMPERIAL
+    expect(clientInput.InstructionsMeasurementSystem).toEqual(MeasurementSystem.IMPERIAL);
+
+    // Clean up the mock
+    delete global.google;
+    done();
+  });
+});
+
+test("should call route with unitSystem set to METRIC", (done) => {
+  // Mock the google object with UnitSystem so that we can use "google.maps.UnitSystem.METRIC".
+  // We need to make it a partial type so that we are not required to mock out the other properties
+  // of the google.maps object.
+  (global.google as Partial<typeof google>) = {
+    maps: {
+      UnitSystem: {
+        IMPERIAL: 0,
+        METRIC: 1,
+      },
+    } as unknown as typeof google.maps,
+  };
+
+  const request = {
+    origin: {
+      placeId: "KEEP_AUSTIN_WEIRD",
+    },
+    destination: {
+      query: "another cool place",
+    },
+    travelMode: TravelMode.DRIVING,
+    unitSystem: google.maps.UnitSystem.METRIC,
+  };
+
+  directionsService.route(request).then(() => {
+    expect(mockedRoutesClientSend).toHaveBeenCalledWith(expect.any(CalculateRoutesCommand));
+    const clientInput: CalculateRoutesRequest = mockedRoutesClientSend.mock.calls[0][0].input;
+
+    // Check that InstructionsMeasurementSystem is set to METRIC
+    expect(clientInput.InstructionsMeasurementSystem).toEqual(MeasurementSystem.METRIC);
+
+    // Clean up the mock
+    delete global.google;
     done();
   });
 });
