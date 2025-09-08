@@ -1,3 +1,7 @@
+# 1.0.1
+
+- Several dependency version updates
+
 # 1.0.0
 
 ### ✨ Features and improvements
