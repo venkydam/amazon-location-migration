@@ -1,3 +1,12 @@
+# 1.0.2
+
+### ✨ Features and improvements
+
+- Updated dependency versions which resolve security vulnerabilities
+- Vulnerability links:
+  - https://github.com/aws-geospatial/amazon-location-migration/security/dependabot/22
+  - https://github.com/aws-geospatial/amazon-location-migration/security/dependabot/21
+
 # 1.0.1
 
 - Several dependency version updates
